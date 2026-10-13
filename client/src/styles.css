@@ -220,7 +220,7 @@ p {
   font-size: 14px;
 }
 .field input::placeholder {
-  color: #95a198;
+  color: #667467;
 }
 .field input:focus,
 .field select:focus {
@@ -1166,7 +1166,7 @@ p {
 }
 .status-booked {
   background: #e9f1e0;
-  color: #5b794b;
+  color: #526e43;
 }
 .status-open {
   background: #edf5ee;

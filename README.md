@@ -37,7 +37,7 @@ scripts/                Optional Windows local PostgreSQL setup
 
 ## Local setup
 
-Requires Node.js 22.12+ (22.x), 24.x, or 26+, npm, and PostgreSQL 16 or newer. Node.js 24 is recommended and was used for local verification. Commands below run from the repository root. On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`.
+Requires Node.js 22.12+ (22.x), 24.x, or 26+, npm, and PostgreSQL 16 or newer. `.node-version` pins Node.js 24.21.0, which was used for local verification. Commands below run from the repository root. On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`.
 
 ```sh
 npm ci
@@ -172,7 +172,7 @@ All instants are stored as `TIMESTAMPTZ` and returned as ISO 8601 UTC strings. S
 
 `api/client.ts` is the only production module issuing HTTP requests. It uses the existing `{ data, meta }` / `{ error }` contracts and Bearer authorization, reads every page of a list, and preserves HTTP conflict/validation errors. No production schedule or booking data is mocked. Booking confirmation appears only after an API success response. Booking, cancellation, creation, closure, and conflicts trigger new API reads rather than optimistic appointment updates. A manual Refresh action retrieves changes made by other demo users.
 
-Read and mutation hooks abort in-flight work on unmount and ignore stale responses. Requests have a 45-second timeout; interrupted mutations ask the user to refresh before retrying because a missing response does not prove the database write failed. Session restoration retains a saved token when the service is temporarily unavailable and offers Retry or Return to sign in.
+Read and mutation hooks abort in-flight work on unmount and ignore stale responses. Requests have a 90-second timeout to allow a free-hosting cold start; interrupted mutations ask the user to refresh before retrying because a missing response does not prove the database write failed. Session restoration retains a saved token when the service is temporarily unavailable and offers Retry or Return to sign in. Confirmation dialogs retain focus while saving and return it to the workspace when a refreshed list removes their original trigger.
 
 Only the token and its expiry are stored in `sessionStorage`; the user profile is restored from `/api/auth/me`. A protected 401 clears the session, and an idle expiry timer plus focus/visibility checks handle expired sessions. A delayed response from an old account cannot expire a newer account's session. `sessionStorage` remains accessible to scripts on the origin, so XSS could expose a token; no secret signing key is shipped to the client. If browser storage is unavailable, authentication works in memory until reload.
 
@@ -180,7 +180,7 @@ Only the token and its expiry are stored in `sessionStorage`; the user profile i
 
 Success responses use `{ "data": ... }`. List responses also contain `{ "meta": { "limit": 100, "offset": 0 } }`. Errors use `{ "error": { "code": "...", "message": "...", "details": [...] } }`, with validation details only when relevant.
 
-Protected requests require `Authorization: Bearer <token>`. Login returns `data.token`, `data.expires_in` (3600 seconds), and `data.user`. JWTs use HS256, a fixed issuer/audience, and expiration. Password hashes are never returned. There is no signup endpoint.
+Protected requests require `Authorization: Bearer <token>`. Login returns `data.token`, `data.expires_in` (3600 seconds), and `data.user`. JWTs use HS256, a fixed issuer/audience, and expiration. Password hashes are never returned. API responses use `Cache-Control: no-store` to prevent storage of tokens and account data. There is no signup endpoint.
 
 | Method | Endpoint | Access / request |
 | --- | --- | --- |
@@ -198,7 +198,7 @@ Protected requests require `Authorization: Bearer <token>`. Login returns `data.
 
 All list endpoints support `?limit=20&offset=0` (limit 1–100, offset 0–1,000,000). Unknown or repeated query keys and unknown body fields are rejected. IDs are positive PostgreSQL integers; JSON booking IDs must be numbers. Availability sorts by ascending start time; own slots and booking history sort by descending start time, with ID tie-breakers. History includes past and cancelled bookings. Paginate with the next offset when a page is full.
 
-Successful reads/updates return `200`, creations `201`. Validation errors return `400`, missing/invalid authentication `401`, role/ownership failures `403`, missing records `404`, and scheduling/booking conflicts `409`. Request limits return `429`, oversized JSON returns `413`, and unexpected failures return a safe `500` without database messages. Health returns `500` when its database check fails. Login allows 20 failed requests per IP per 15 minutes; the API allows 300 requests per IP per minute, excluding health checks.
+Successful reads/updates return `200`, creations `201`. Validation errors return `400`, missing/invalid authentication `401`, role/ownership failures `403`, missing records `404`, and scheduling/booking conflicts `409`. Request limits return `429`, oversized JSON returns `413`, unsupported JSON encodings return `415`, and unexpected failures return a safe `500` without database messages. Health returns `500` when its database check fails. Login allows 20 failed requests per IP per 15 minutes; the API allows 300 requests per IP per minute, excluding health checks.
 
 Example login in PowerShell:
 
@@ -221,11 +221,11 @@ npm run build
 
 `npm test` runs backend and frontend suites and requires real PostgreSQL. `npm run test:server` runs only the backend; `npm run test:client` runs frontend tests without requiring a database. The original `test:unit` and `test:integration` scripts retain their backend scope. Frontend component tests mock Fetch responses in isolation. Backend integration tests never substitute a database mock or silently skip when PostgreSQL is unavailable. They apply migrations and truncate the three domain tables between cases. They use only `TEST_DATABASE_URL`, require a local database named `slotguard_test` or `slotguard_<suffix>_test`, reject connection query parameters, and verify `current_database()` before any destructive setup. Never put application or production data in that database, and do not run two integration suites against the same test database simultaneously.
 
-Unit tests cover input/date validation, environment/test-target safety, authorization helpers, and booking decisions. Integration tests cover login, token expiration, roles and ownership, UTC scheduling, availability, persistence through a separate pool, cancellation and history, closure, database constraints, repeated migrations/seeding, request limits, and safe database failure handling.
+Unit tests cover input/date validation, environment/test-target safety, authorization helpers, and booking decisions. Integration tests cover login, JWT algorithm/issuer/audience/expiration, direct API authentication, roles and ownership, production-origin CORS preflight, cache prevention, malformed request encodings, UTC scheduling, availability, persistence through a separate pool, transaction rollback, cancellation and history, closure, database constraints, repeated migrations/seeding, request limits, and safe database failure handling.
 
 The required concurrency test starts two simultaneous HTTP requests from distinct Students while a third PostgreSQL connection holds the target slot lock. It observes both requests waiting in `pg_stat_activity`, releases the lock, and asserts exactly one `201`, one `409`, and one confirmed row. Additional tests race booking with closure, cancellation with rebooking/closure, and two cancellations.
 
-Frontend tests cover login success/failure, role-specific navigation, restored/expired sessions, logout, loading/error/retry states, API-confirmed booking, 409 conflict refresh, cancellation/history, Tutor creation/closure, keyboard dialog dismissal, pagination, and local date validation.
+Frontend tests cover login success/failure, role-specific navigation, restored/expired sessions, logout, delayed responses after account/tutor changes, loading/error/retry states, API-confirmed booking, 409 conflict refresh, cancellation/history, Tutor creation/closure, dialog focus and keyboard navigation, pagination, cold-start timeout behavior, and local date validation.
 
 For the real browser smoke, start the backend and frontend (development or compiled preview) first, seed fictional demo accounts, and have Microsoft Edge installed:
 
@@ -233,9 +233,26 @@ For the real browser smoke, start the backend and frontend (development or compi
 npm run test:browser
 ```
 
-This optional smoke uses Playwright with the installed Edge browser. It runs through the actual UI and real PostgreSQL, uses a second browser session to cause a genuine stale-slot conflict, and checks mobile width, session restoration, and timezone behavior in Kuala Lumpur, New York (including a spring DST gap), and Kathmandu. It cancels its successful bookings and closes its newly created slot; fictional cancelled history and closed slots remain. It does not truncate the application database. Screenshots are written under ignored `.local/phase-2-browser/`. Its URLs are restricted to localhost. Set `SLOTGUARD_BROWSER_CHANNEL=chrome` if using an installed Chrome browser; `SLOTGUARD_FRONTEND_URL` and `SLOTGUARD_API_URL` can select other local ports, with matching frontend API configuration and CORS.
+This optional smoke uses Playwright with the installed Edge browser. It runs through the actual UI and real PostgreSQL, uses a second browser session to cause a genuine stale-slot conflict, and checks dialog keyboard navigation, focus restoration, mobile width, session restoration, and timezone behavior in Kuala Lumpur, New York (including a spring DST gap), and Kathmandu. It cancels its successful bookings and closes its newly created slot; fictional cancelled history and closed slots remain. It does not truncate the application database. Screenshots are written under ignored `.local/phase-2-browser/`. Its URLs are restricted to localhost. Set `SLOTGUARD_BROWSER_CHANNEL=chrome` if using an installed Chrome browser; `SLOTGUARD_FRONTEND_URL` and `SLOTGUARD_API_URL` can select other local ports, with matching frontend API configuration and CORS.
 
-Local checks passed: **34 frontend tests and 51 backend tests**, both TypeScript checks, both production builds, and the real browser smoke. The concurrency test verified one successful reservation, one conflict, and exactly one confirmed booking for simultaneous requests.
+Local checks passed: **40 frontend tests and 58 backend tests** (28 unit and 30 real-PostgreSQL integration tests), both TypeScript checks, both production builds, and the real browser smoke using a compiled API and production frontend preview. The concurrency test verified one successful reservation, one conflict, and exactly one confirmed booking for simultaneous requests. npm's dependency audit reported no known vulnerabilities at the time of this review. These are local automated results; hosted behavior remains unverified.
+
+## Hosting preparation
+
+The intended services are Render Free static hosting, one Render Free Node web service, and Neon Free PostgreSQL. No cloud resources or CI workflow are configured yet. Keep the repository root as the build directory so npm workspaces, the lockfile, and `database/migrations` remain available.
+
+| Service | Build | Runtime / output |
+| --- | --- | --- |
+| Frontend | `npm ci --include=dev && npm run build --workspace client` | Publish `client/dist` |
+| Backend | `npm ci --include=dev && npm run build --workspace server` | `npm start`; health path `/api/health` |
+
+Configure `VITE_API_BASE_URL` with the backend's HTTPS `/api` URL **before building the frontend**; changing it requires a rebuild. For the backend, set `NODE_ENV=production`, a random `JWT_SECRET`, the exact HTTPS frontend origin in `CORS_ORIGIN`, and the Neon `DATABASE_URL`. The API already binds to `0.0.0.0` and reads the platform's `PORT`, as [Render requires](https://render.com/docs/web-services#port-binding). Validate Render's proxy chain before setting `TRUST_PROXY_HOPS`; an incorrect value can undermine IP-based request limits. Use `.node-version` or the matching `NODE_VERSION` setting to keep builds on the verified runtime.
+
+For the initial single-service deployment, use a direct Neon URL with the existing small `pg` pool and `sslmode=verify-full`. Run `npm run db:migrate`, then `npm run db:seed`, from a trusted environment configured with that database URL. Keep credentials out of command history and Git. Replenish future slots using `npm run db:replenish` when needed. [Neon's pooling documentation](https://neon.com/docs/connect/connection-pooling) recommends direct connections for migrations and notes session-setting limitations with its transaction pooler; validate timeout settings before switching the API to a pooled URL. Actual Neon TLS/connectivity has not been tested yet. Local PostgreSQL files and the Windows helper are not required by the deployed API.
+
+[Render Free](https://render.com/docs/free) web services sleep after 15 idle minutes and can take about a minute to restart. [Neon Free](https://neon.com/docs/introduction/plans) also suspends idle compute and enforces usage limits. Keep the budget at $0: select Free plans, avoid adding payment methods or enabling paid features, and recheck both provider dashboards before creating services. Quota exhaustion can suspend service; no keep-alive polling is configured.
+
+Before a public release, configure GitHub Actions with isolated PostgreSQL tests, verify the actual hosting environment and TLS, and repeat both roles' workflows and a cold-start login at the deployed URLs. CI and hosted verification remain separate work.
 
 ## Current limits
 

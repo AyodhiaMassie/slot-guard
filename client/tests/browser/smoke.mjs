@@ -60,8 +60,17 @@ async function selectTime(target, startsAt) {
   await target.locator(`.time-button:has(time[datetime="${startsAt}"])`).click();
 }
 async function confirmBooking(target) {
-  await target.getByRole('dialog').getByRole('button', { name: 'Confirm booking' }).click();
+  const dialog = target.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Close dialog' }).focus();
+  await target.keyboard.press('Shift+Tab');
+  assert.equal(await dialog.getByRole('button', { name: 'Confirm booking' })
+    .evaluate((button) => button === document.activeElement), true, 'Backward Tab must stay inside the dialog.');
+  await target.keyboard.press('Tab');
+  assert.equal(await dialog.getByRole('button', { name: 'Close dialog' })
+    .evaluate((button) => button === document.activeElement), true, 'Forward Tab must stay inside the dialog.');
+  await dialog.getByRole('button', { name: 'Confirm booking' }).click();
   await target.getByText(/You're booked with/).waitFor();
+  await target.waitForFunction(() => document.activeElement?.id === 'main-content');
 }
 async function cancelTime(target, startsAt) {
   await target.getByRole('navigation').getByRole('button', { name: 'My appointments' }).click();
@@ -271,7 +280,7 @@ try {
   await quarterHourZone.close();
   assert.deepEqual(errors, [], 'No unhandled browser errors.');
   console.log(
-    'Real-browser smoke passed: Student/Tutor flows, PostgreSQL booking and cancellation, Tutor creation/closure, real 409 conflict, session restore/logout, desktop/mobile layout, and three timezones including DST and quarter-hour boundaries.',
+    'Real-browser smoke passed: Student/Tutor flows, PostgreSQL booking and cancellation, Tutor creation/closure, real 409 conflict, dialog keyboard navigation and focus restoration, session restore/logout, desktop/mobile layout, and three timezones including DST and quarter-hour boundaries.',
   );
   console.log('Screenshots saved in .local/phase-2-browser/.');
 } finally {

@@ -94,4 +94,24 @@ describe('Fetch API client', () => {
     controller.abort();
     await expect(read).rejects.toMatchObject({ name: 'AbortError' });
   });
+  it('allows a cold start before timing out with an ambiguous-write warning', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn((_url, { signal }: RequestInit) => {
+      requestSignal = signal ?? undefined;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    }));
+    const result = expect(createApi('token', vi.fn()).book(12)).rejects.toMatchObject({
+      status: 0,
+      code: 'CONNECTION_ERROR',
+      message: expect.stringContaining('Refresh to check the latest state'),
+    });
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(requestSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(30000);
+    await result;
+    expect(requestSignal?.aborted).toBe(true);
+  });
 });

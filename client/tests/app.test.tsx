@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App';
@@ -189,6 +189,19 @@ describe('login and session lifecycle', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await screen.findByRole('navigation');
   });
+  it('keeps a new account signed in after an earlier account receives a delayed 401', async () => {
+    let complete: ((response: Response) => void) | undefined;
+    override = (path) => path === '/api/tutors'
+      ? new Promise<Response>((resolve) => { complete = resolve; }) : undefined;
+    await authenticated();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Use Maya (Tutor)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await screen.findByRole('button', { name: 'Manage availability' });
+    await act(async () => { complete!(json({ error: { message: 'Expired' } }, 401)); });
+    expect(screen.getByRole('button', { name: 'Manage availability' })).toBeInTheDocument();
+    expect(sessionStorage.getItem('slotguard.session')).toContain('tutor-token');
+  });
 });
 
 describe('Student booking and cancellation', () => {
@@ -198,6 +211,18 @@ describe('Student booking and cancellation', () => {
     expect(screen.getAllByText(new RegExp(timeZone))).not.toHaveLength(0);
     await userEvent.click(screen.getByRole('button', { name: 'View Dr Noah Patel availability' }));
     expect(await screen.findByText('No times available yet')).toBeInTheDocument();
+  });
+  it('ignores delayed availability from the previously selected tutor', async () => {
+    let complete: ((response: Response) => void) | undefined;
+    override = (path) => path === '/api/tutors/3/slots'
+      ? new Promise<Response>((resolve) => { complete = resolve; }) : undefined;
+    await authenticated();
+    await screen.findByText('Finding available times…');
+    await userEvent.click(screen.getByRole('button', { name: 'View Dr Noah Patel availability' }));
+    await screen.findByText('No times available yet');
+    await act(async () => { complete!(json({ data: available })); });
+    expect(screen.getByText('No times available yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Book / })).not.toBeInTheDocument();
   });
   it('waits for API confirmation before reporting a booking and refreshes appointments', async () => {
     let complete: ((response: Response) => void) | undefined;
@@ -241,6 +266,13 @@ describe('Student booking and cancellation', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('That slot is no longer available');
     expect(await screen.findAllByRole('button', { name: /^Book / })).toHaveLength(1);
     expect(history).toHaveLength(0);
+  });
+  it('returns focus to the workspace when a booking refresh removes the dialog trigger', async () => {
+    await authenticated();
+    const dialog = await selectSlot();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm booking' }));
+    await screen.findByText(/You're booked with/);
+    await waitFor(() => expect(document.getElementById('main-content')).toHaveFocus());
   });
   it('cancels through the API, preserves history, and refreshes availability', async () => {
     history = [appointment];
@@ -300,7 +332,7 @@ describe('Student booking and cancellation', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });
 

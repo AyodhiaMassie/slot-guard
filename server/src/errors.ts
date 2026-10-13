@@ -32,6 +32,9 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, _request, resp
   } else if (typeof error === 'object' && error !== null && 'type' in error
     && error.type === 'entity.too.large') {
     apiError = new ApiError(413, 'BODY_TOO_LARGE', 'The request body is too large.');
+  } else if (typeof error === 'object' && error !== null && 'type' in error
+    && (error.type === 'encoding.unsupported' || error.type === 'charset.unsupported')) {
+    apiError = new ApiError(415, 'UNSUPPORTED_ENCODING', 'The request encoding is not supported.');
   } else if (error instanceof URIError) {
     apiError = new ApiError(400, 'INVALID_URL', 'The request URL is malformed.');
   } else {

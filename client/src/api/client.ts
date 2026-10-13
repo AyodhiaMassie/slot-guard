@@ -28,7 +28,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const cancel = () => controller.abort();
   options.signal?.addEventListener('abort', cancel, { once: true });
   if (options.signal?.aborted) controller.abort();
-  const timeout = setTimeout(cancel, 45000);
+  // Free hosting can take about a minute to wake; allow the initial request to finish.
+  const timeout = setTimeout(cancel, 90000);
   try {
     const response = await fetch(`${apiBaseUrl}${path}`, {
       method: options.method ?? 'GET',

@@ -8,7 +8,7 @@ import type { Pool } from 'pg';
 import { createApp } from '../../src/app.js';
 import type { AppConfig } from '../../src/config.js';
 import { migrate } from '../../src/db/migrate.js';
-import { createPool } from '../../src/db/pool.js';
+import { createPool, withTransaction } from '../../src/db/pool.js';
 import { seed } from '../../src/db/seed.js';
 import { connectTestDatabase } from '../helpers/test-database.js';
 
@@ -85,6 +85,24 @@ describe('authentication and safe HTTP handling', () => {
     const me = await request(app).get('/api/auth/me').auth(login.body.data.token, { type: 'bearer' }).expect(200);
     expect(me.body.data.id).toBe(student1);
   });
+  it('prevents caching tokens, profiles, and API errors', async () => {
+    await request(app).post('/api/auth/login').send({ email: 'one.student@demo.test', password })
+      .expect(200).expect('Cache-Control', 'no-store');
+    await request(app).get('/api/auth/me').auth(studentToken, { type: 'bearer' })
+      .expect(200).expect('Cache-Control', 'no-store');
+    await request(app).get('/api/auth/me').expect(401).expect('Cache-Control', 'no-store');
+  });
+  it('reports unsupported JSON encodings as client errors', async () => {
+    for (const headers of [
+      { 'Content-Encoding': 'unsupported' },
+      { 'Content-Type': 'application/json; charset=iso-8859-1' },
+    ]) {
+      await request(app).post('/api/auth/login').set(headers)
+        .send({ email: 'one.student@demo.test', password }).expect(415, {
+          error: { code: 'UNSUPPORTED_ENCODING', message: 'The request encoding is not supported.' },
+        });
+    }
+  });
   it('rejects wrong passwords and unknown users with the same response', async () => {
     const wrong = await request(app).post('/api/auth/login').send({ email: 'one.student@demo.test', password: 'wrong' }).expect(401);
     const unknown = await request(app).post('/api/auth/login').send({ email: 'unknown@demo.test', password }).expect(401);
@@ -98,6 +116,24 @@ describe('authentication and safe HTTP handling', () => {
     }
     const wrongAudience = jwt.sign({}, config.jwtSecret, { subject: String(student1), expiresIn: '1h', issuer: 'slotguard', audience: 'other' });
     await request(app).get('/api/auth/me').auth(wrongAudience, { type: 'bearer' }).expect(401);
+  });
+  it('requires the signing algorithm, issuer, and expiration even for correctly signed tokens', async () => {
+    const claims = { subject: String(student1), issuer: 'slotguard', audience: 'slotguard-api', expiresIn: 3600 };
+    for (const invalid of [
+      jwt.sign({}, config.jwtSecret, { ...claims, algorithm: 'HS384' }),
+      jwt.sign({}, config.jwtSecret, { ...claims, issuer: 'other-service' }),
+      jwt.sign({}, config.jwtSecret, { subject: String(student1), issuer: claims.issuer, audience: claims.audience }),
+    ]) {
+      await request(app).get('/api/auth/me').auth(invalid, { type: 'bearer' }).expect(401);
+    }
+  });
+  it('requires authentication for every protected route when called directly', async () => {
+    const endpoints = [
+      ['get', '/api/auth/me'], ['get', '/api/tutors'], ['get', `/api/tutors/${tutor1}/slots`],
+      ['post', '/api/slots'], ['get', '/api/slots/mine'], ['patch', '/api/slots/1/close'],
+      ['post', '/api/bookings'], ['get', '/api/bookings/mine'], ['patch', '/api/bookings/1/cancel'],
+    ] as const;
+    for (const [method, route] of endpoints) await request(app)[method](route).expect(401);
   });
   it('returns consistent JSON for malformed input, missing routes, and health', async () => {
     await request(app).get('/api/health').expect(200, { data: { status: 'ok' } });
@@ -115,6 +151,17 @@ describe('authentication and safe HTTP handling', () => {
     const allowed = await request(app).get('/api/health').set('Origin', config.corsOrigins[0]!).expect(200);
     expect(allowed.headers['access-control-allow-origin']).toBe(config.corsOrigins[0]);
     await request(app).get('/api/health').set('Origin', 'https://untrusted.example').expect(403);
+  });
+  it('allows authenticated HTTPS preflight only for the configured production origin', async () => {
+    const origin = 'https://slotguard.example';
+    const productionApp = createApp(pool, { ...config, nodeEnv: 'production', corsOrigins: [origin] });
+    const preflight = await request(productionApp).options('/api/bookings')
+      .set('Origin', origin).set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'authorization,content-type').expect(204);
+    expect(preflight.headers['access-control-allow-origin']).toBe(origin);
+    expect(preflight.headers['access-control-allow-headers']).toBe('Authorization,Content-Type');
+    expect(preflight.headers.vary).toContain('Origin');
+    await request(productionApp).options('/api/bookings').set('Origin', 'https://other.example').expect(403);
   });
   it('limits failed login attempts', async () => {
     for (let index = 0; index < 20; index += 1) {
@@ -322,6 +369,20 @@ describe('real PostgreSQL concurrency', () => {
 });
 
 describe('database safeguards and repeatable maintenance', () => {
+  it('rolls back provisional writes after a SQL failure and keeps the connection usable', async () => {
+    const startsAt = futureTime();
+    await expect(withTransaction(pool, async (client) => {
+      await client.query('INSERT INTO appointment_slots (tutor_id, starts_at) VALUES ($1, $2)', [tutor1, startsAt]);
+      await client.query('INSERT INTO appointment_slots (tutor_id, starts_at) VALUES ($1, $2)', [tutor1, startsAt]);
+    })).rejects.toMatchObject({ code: '23505', constraint: 'tutor_start_unique' });
+    expect((await pool.query('SELECT id FROM appointment_slots WHERE tutor_id = $1 AND starts_at = $2', [tutor1, startsAt])).rows)
+      .toEqual([]);
+    await book(await createSlot()).expect(201);
+  });
+  it('rejects past slot creation even when SQL bypasses API validation', async () => {
+    await expect(pool.query('INSERT INTO appointment_slots (tutor_id, starts_at) VALUES ($1, $2)', [tutor1, '2020-01-01T09:00:00Z']))
+      .rejects.toMatchObject({ code: '23514', constraint: 'slot_future' });
+  });
   it('enforces the partial unique index independently of application checks', async () => {
     const slotId = await createSlot();
     await pool.query('INSERT INTO bookings (slot_id, student_id) VALUES ($1, $2)', [slotId, student1]);

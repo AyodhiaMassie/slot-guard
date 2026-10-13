@@ -12,6 +12,11 @@ export function createApp(pool: Pool, config: AppConfig) {
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxyHops);
   app.use(helmet());
+  app.use('/api', (_request, response, next) => {
+    // Tokens and role-specific data must not be stored by browsers or intermediary caches.
+    response.set('Cache-Control', 'no-store');
+    next();
+  });
   app.use(cors({
     origin(origin, callback) {
       if (!origin || config.corsOrigins.includes(origin)) callback(null, true);

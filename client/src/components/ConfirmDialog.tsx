@@ -26,6 +26,7 @@ export function ConfirmDialog({
   pendingRef.current = pending;
   useEffect(() => {
     const previousFocus = document.activeElement;
+    const workspace = dialog.current?.closest('main');
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
@@ -36,11 +37,15 @@ export function ConfirmDialog({
         dialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
       if (!focusable?.length) {
         event.preventDefault();
+        dialog.current?.focus();
         return;
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (document.activeElement === dialog.current || !dialog.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first)?.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last?.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -52,17 +57,29 @@ export function ConfirmDialog({
     return () => {
       document.removeEventListener('keydown', handleKey);
       document.body.style.overflow = previousOverflow;
-      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+      // A refresh can remove the trigger after the dialog closes; wait for the updated layout.
+      requestAnimationFrame(() => {
+        if (dialog.current?.isConnected || document.activeElement !== document.body) return;
+        if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+        else if (workspace?.isConnected) workspace.focus();
+      });
     };
   }, []);
+  useEffect(() => {
+    if (pending) dialog.current?.focus();
+    else if (document.activeElement === dialog.current)
+      dialog.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [pending]);
 
   return (
     <div className="modal-backdrop">
       <div
         ref={dialog}
         className="confirm-dialog"
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
+        aria-busy={pending}
         aria-labelledby={titleId}
       >
         <div className="dialog-heading">
