@@ -5,6 +5,7 @@ coverage/
 .env.*
 !.env.example
 !.env.test.example
+!.env.production.example
 .local/
 *.log
 *.pem

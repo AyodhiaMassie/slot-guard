@@ -2,7 +2,7 @@
 
 SlotGuard is a university consultation booking application using fictional Student and Tutor accounts. Students find tutors, book 30-minute consultations, and manage appointments; Tutors publish and close availability. Its central requirement is that simultaneous requests cannot reserve the same appointment twice. PostgreSQL is the authority on booking availability.
 
-The application includes an Express REST API, PostgreSQL persistence, JWT authentication, a responsive React frontend, and automated tests. Booking, cancellation, and availability management have been verified locally with real PostgreSQL and automated Microsoft Edge browser checks. CI and hosted deployment are not configured.
+The application includes an Express REST API, PostgreSQL persistence, JWT authentication, a responsive React frontend, and automated tests. Booking, cancellation, and availability management have been verified locally with real PostgreSQL and automated browser checks. GitHub Actions and deployment configuration are prepared; hosted CI and cloud deployment remain unverified.
 
 ## Architecture
 
@@ -111,7 +111,7 @@ Migrations run explicitly and transactionally, with an advisory lock and checksu
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection URL; required for the server and database commands |
+| `DATABASE_URL` | PostgreSQL connection URL; remote hosts require exactly one `sslmode=verify-full` |
 | `JWT_SECRET` | Random secret of at least 32 characters; placeholder secrets are rejected |
 | `CORS_ORIGIN` | Required comma-separated exact HTTP/HTTPS frontend origins, e.g. `http://localhost:5173` |
 | `PORT` | HTTP port; default `3000` |
@@ -121,7 +121,7 @@ Migrations run explicitly and transactionally, with an advisory lock and checksu
 | `TEST_DATABASE_URL` | Dedicated local test database URL, read from `server/.env.test` |
 | `VITE_API_BASE_URL` | Public API base URL in `client/.env`; default `http://localhost:3000/api` |
 
-`pg` honors PostgreSQL TLS connection parameters. If a later hosting phase requires TLS, configure certificate verification in the database URL (for example `sslmode=verify-full`); the backend does not disable verification. Tests accept only local URLs without query parameters.
+The backend requires verified TLS for remote PostgreSQL hosts and rejects URL query options that can override the validated host or weaken TLS. Local PostgreSQL can use a loopback URL without TLS. Tests accept only local URLs without query parameters. Production example templates are available in `server/.env.production.example` and `client/.env.production.example`; replace their placeholders in the hosting dashboards, keeping actual environment files private. Frontend builds on Render require an explicit HTTPS API URL and reject missing, loopback, or placeholder values.
 
 ## Demo accounts and maintenance
 
@@ -214,6 +214,7 @@ Invoke-RestMethod -Uri http://localhost:3000/api/tutors -Headers $headers
 npm run test:unit
 npm run test:integration
 npm run test:client
+npm run db:prepare:test
 npm test
 npm run typecheck
 npm run build
@@ -235,25 +236,33 @@ npm run test:browser
 
 This optional smoke uses Playwright with the installed Edge browser. It runs through the actual UI and real PostgreSQL, uses a second browser session to cause a genuine stale-slot conflict, and checks dialog keyboard navigation, focus restoration, mobile width, session restoration, and timezone behavior in Kuala Lumpur, New York (including a spring DST gap), and Kathmandu. It cancels its successful bookings and closes its newly created slot; fictional cancelled history and closed slots remain. It does not truncate the application database. Screenshots are written under ignored `.local/phase-2-browser/`. Its URLs are restricted to localhost. Set `SLOTGUARD_BROWSER_CHANNEL=chrome` if using an installed Chrome browser; `SLOTGUARD_FRONTEND_URL` and `SLOTGUARD_API_URL` can select other local ports, with matching frontend API configuration and CORS.
 
-Local checks passed: **40 frontend tests and 58 backend tests** (28 unit and 30 real-PostgreSQL integration tests), both TypeScript checks, both production builds, and the real browser smoke using a compiled API and production frontend preview. The concurrency test verified one successful reservation, one conflict, and exactly one confirmed booking for simultaneous requests. npm's dependency audit reported no known vulnerabilities at the time of this review. These are local automated results; hosted behavior remains unverified.
+For a production smoke isolated from application data, build both workspaces, configure the local `TEST_DATABASE_URL`, and run:
+
+```sh
+npm run test:browser:isolated
+```
+
+This command verifies the test database, migrates and seeds it, builds a separate frontend under `.local/`, and starts its own compiled API and preview on ports 3301 and 5181. It stops those processes when finished. Do not run another integration suite against the same test database simultaneously. The browser default is Edge; bundled Chromium can be installed with Playwright and selected with `SLOTGUARD_BROWSER_CHANNEL=chromium`.
+
+The test suites contain **54 frontend tests and 75 backend tests** (45 unit and 30 real-PostgreSQL integration tests). The concurrency test verifies one successful reservation, one conflict, and exactly one confirmed booking for simultaneous requests. Local verification and the commands for reproducing CI are described in the [deployment guide](docs/deployment.md); hosted CI and deployment require separate verification after publishing.
 
 ## Hosting preparation
 
-The intended services are Render Free static hosting, one Render Free Node web service, and Neon Free PostgreSQL. No cloud resources or CI workflow are configured yet. Keep the repository root as the build directory so npm workspaces, the lockfile, and `database/migrations` remain available.
+The intended services are Render Free static hosting, one Render Free Node web service, and Neon Free PostgreSQL. The [deployment guide](docs/deployment.md) contains the exact dashboard settings, environment variables, protected manual migration process, CI behavior, verification checklist, and troubleshooting. No cloud resources or Git remote have been created. Keep the repository root as the build directory so npm workspaces, the lockfile, and `database/migrations` remain available.
 
 | Service | Build | Runtime / output |
 | --- | --- | --- |
 | Frontend | `npm ci --include=dev && npm run build --workspace client` | Publish `client/dist` |
 | Backend | `npm ci --include=dev && npm run build --workspace server` | `npm start`; health path `/api/health` |
 
-Configure `VITE_API_BASE_URL` with the backend's HTTPS `/api` URL **before building the frontend**; changing it requires a rebuild. For the backend, set `NODE_ENV=production`, a random `JWT_SECRET`, the exact HTTPS frontend origin in `CORS_ORIGIN`, and the Neon `DATABASE_URL`. The API already binds to `0.0.0.0` and reads the platform's `PORT`, as [Render requires](https://render.com/docs/web-services#port-binding). Validate Render's proxy chain before setting `TRUST_PROXY_HOPS`; an incorrect value can undermine IP-based request limits. Use `.node-version` or the matching `NODE_VERSION` setting to keep builds on the verified runtime.
+Configure `VITE_API_BASE_URL` with the backend's HTTPS `/api` URL **before building the frontend**; changing it requires a rebuild. For the backend, set `NODE_ENV=production`, a random `JWT_SECRET`, the exact HTTPS frontend origin in `CORS_ORIGIN`, and the Neon `DATABASE_URL`. The API already binds to `0.0.0.0` and reads the platform's `PORT`, as [Render requires](https://render.com/docs/web-services#port-binding). Verify Render's proxy chain before public release; an incorrect `TRUST_PROXY_HOPS` can undermine IP-based request limits. Use `.node-version` and `NODE_VERSION=24.21.0` to keep builds on the verified runtime.
 
-For the initial single-service deployment, use a direct Neon URL with the existing small `pg` pool and `sslmode=verify-full`. Run `npm run db:migrate`, then `npm run db:seed`, from a trusted environment configured with that database URL. Keep credentials out of command history and Git. Replenish future slots using `npm run db:replenish` when needed. [Neon's pooling documentation](https://neon.com/docs/connect/connection-pooling) recommends direct connections for migrations and notes session-setting limitations with its transaction pooler; validate timeout settings before switching the API to a pooled URL. Actual Neon TLS/connectivity has not been tested yet. Local PostgreSQL files and the Windows helper are not required by the deployed API.
+For the initial single-service deployment, use a direct Neon URL, `DB_POOL_MAX=5`, and exactly one `sslmode=verify-full`. Run `npm run db:migrate`, then `npm run db:seed`, from a trusted environment configured with that database URL using the protected prompt in the guide. Render Free has no pre-deploy command; builds and API startup do not run migrations or seeds. Keep credentials out of command history and Git. Replenish future slots using `npm run db:replenish` when needed. [Neon's pooling documentation](https://neon.com/docs/connect/connection-pooling) describes the transaction pooler's session-setting limitations; validate timeout settings before switching the API to a pooled URL. Actual Neon TLS/connectivity has not been tested yet. Local PostgreSQL files and the Windows helper are not required by the deployed API.
 
 [Render Free](https://render.com/docs/free) web services sleep after 15 idle minutes and can take about a minute to restart. [Neon Free](https://neon.com/docs/introduction/plans) also suspends idle compute and enforces usage limits. Keep the budget at $0: select Free plans, avoid adding payment methods or enabling paid features, and recheck both provider dashboards before creating services. Quota exhaustion can suspend service; no keep-alive polling is configured.
 
-Before a public release, configure GitHub Actions with isolated PostgreSQL tests, verify the actual hosting environment and TLS, and repeat both roles' workflows and a cold-start login at the deployed URLs. CI and hosted verification remain separate work.
+The prepared GitHub Actions workflow uses read-only permissions, Node 24.21.0, an isolated PostgreSQL 18 service, both TypeScript checks/builds, and all unit/API/database/frontend tests. Test target guards reject remote production databases. Browser testing remains local because an existing successful-booking focus assertion timed out intermittently in Chromium; two complete runs passed, but the check needs investigation before becoming a CI gate. Before a public release, run the workflow on GitHub, verify the actual hosting environment and TLS, and repeat both roles' workflows and a cold-start login at the deployed URLs.
 
 ## Current limits
 
-There is no hosted environment or CI workflow yet. Browser smoke testing covers local Microsoft Edge; Firefox, Safari, and hosted behavior are unverified. JWTs expire after one hour; there is no refresh/revocation endpoint. Request limits are process-local, suitable for this single-service MVP. Public demo users share fictional data; this is not a university production system. Browser-local view selection resets on reload. At an ambiguous repeated DST hour, slot creation uses the browser's first occurrence of that local time. Hosting is intended to use free tiers, with no paid resources or billing activation.
+There is no hosted environment yet, and the prepared CI workflow has not run on GitHub. Firefox, Safari, and hosted browser behavior are unverified. JWTs expire after one hour; there is no refresh/revocation endpoint. Request limits are process-local, suitable for this single-service MVP. Public demo users share fictional data; this is not a university production system. Browser-local view selection resets on reload. At an ambiguous repeated DST hour, slot creation uses the browser's first occurrence of that local time. Hosting is intended to use free tiers, with no paid resources or billing activation.
