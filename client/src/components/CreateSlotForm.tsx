@@ -42,7 +42,7 @@ export function CreateSlotForm({
       () => {
         onNotice({
           kind: 'success',
-          message: 'Your new consultation time is available for students to book.',
+          message: 'Time slot created. Students can now book it.',
         });
         onRefresh();
       },
@@ -58,8 +58,8 @@ export function CreateSlotForm({
       <span className="create-icon">
         <Icon name="plus" />
       </span>
-      <h2>Make a little space.</h2>
-      <p className="muted">Add a consultation time to your schedule.</p>
+      <h2>Create a time slot</h2>
+      <p className="muted">Set a date and start time for student bookings.</p>
       <form onSubmit={submit}>
         <div className="field">
           <label htmlFor="slot-date">Appointment date</label>
@@ -97,7 +97,7 @@ export function CreateSlotForm({
           <Icon name="clock" />
           <span>
             <strong>30 minutes</strong>
-            <small>One focused conversation</small>
+            <small>Consultation duration</small>
           </span>
           <Icon name="check" />
         </div>
@@ -112,12 +112,12 @@ export function CreateSlotForm({
           type="submit"
           disabled={mutation.pending || !selectedTime}
         >
-          {mutation.pending ? 'Creating…' : 'Create appointment slot'}
+          {mutation.pending ? 'Creating…' : 'Create time slot'}
           <Icon name="plus" />
         </button>
       </form>
       <p className="form-footnote">
-        Students can book this time as soon as it’s added. Already booked times can’t be closed.
+        New slots are available immediately. Booked slots cannot be closed.
       </p>
     </section>
   );

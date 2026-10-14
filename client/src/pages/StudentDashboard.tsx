@@ -18,7 +18,7 @@ export function StudentDashboard({
   view: WorkspaceView;
   onNavigate: (view: WorkspaceView) => void;
 }) {
-  const { api, user } = useAuth();
+  const { api } = useAuth();
   const now = useClock();
   const [version, setVersion] = useState(0);
   const [selectedTutorId, setSelectedTutorId] = useState<number | null>(null);
@@ -40,16 +40,11 @@ export function StudentDashboard({
   return (
     <>
       <PageHeading
-        eyebrow={`A LITTLE SPACE FOR YOUR NEXT STEP, ${user?.name.split(' ')[0]?.toUpperCase()}`}
-        title={
-          view === 'browse'
-            ? 'Good guidance starts with a conversation.'
-            : 'Your time, thoughtfully planned.'
-        }
+        title={view === 'browse' ? 'Find a tutor' : 'My appointments'}
         description={
           view === 'browse'
-            ? 'Find the right tutor. Choose a time. Leave with a clearer direction.'
-            : 'Keep track of what’s ahead and the conversations you’ve had.'
+            ? 'Browse tutors and book a 30-minute consultation.'
+            : 'View your upcoming appointments and booking history.'
         }
         onRefresh={refresh}
       />
@@ -64,16 +59,16 @@ export function StudentDashboard({
               <div>
                 <span className="eyebrow">YOUR NEXT APPOINTMENT</span>
                 {bookings.loading ? (
-                  <p>Loading your appointments…</p>
+                  <p>Loading appointments…</p>
                 ) : bookings.error ? (
-                  <p role="alert">Appointments could not load. Use Refresh to try again.</p>
+                  <p role="alert">Unable to load appointments. Select Refresh to try again.</p>
                 ) : next ? (
                   <p>
                     <strong>{next.tutor_name}</strong> · {formatDay(next.starts_at)} ·{' '}
                     {timeRange(next.starts_at, next.ends_at)}
                   </p>
                 ) : (
-                  <p>A clear next step is one conversation away.</p>
+                  <p>No upcoming appointments.</p>
                 )}
               </div>
             </div>
@@ -84,18 +79,17 @@ export function StudentDashboard({
           <div className="booking-layout">
             <section className="tutor-directory">
               <div className="directory-heading">
-                <h2>Find your tutor</h2>
+                <h2>Tutors</h2>
                 <span>{tutors.data?.length ?? '—'} tutors</span>
               </div>
-              <p className="muted directory-description">A familiar face for your next question.</p>
               {tutors.loading ? (
-                <LoadingState label="Loading the tutor directory…" />
+                <LoadingState label="Loading tutors…" />
               ) : tutors.error ? (
                 <ErrorState message={tutors.error} onRetry={refresh} />
               ) : !tutors.data?.length ? (
                 <EmptyState
-                  title="No tutors yet"
-                  message="Check back soon for new consultation availability."
+                  title="No tutors available"
+                  message="Check again later for tutor availability."
                 />
               ) : (
                 <div className="tutor-list">
@@ -114,8 +108,8 @@ export function StudentDashboard({
                         </span>
                       </div>
                       <h3>{tutor.name}</h3>
-                      <span className="specialty">{tutor.specialty || 'Academic guidance'}</span>
-                      <p>{tutor.description || 'Support for your academic next steps.'}</p>
+                      <span className="specialty">{tutor.specialty || 'Academic consultations'}</span>
+                      <p>{tutor.description || 'Select this tutor to view available times.'}</p>
                       <span
                         className={`availability-count ${tutor.available_slot_count ? '' : 'unavailable-count'}`}
                       >
@@ -140,8 +134,8 @@ export function StudentDashboard({
             ) : (
               <section className="panel availability-panel">
                 <EmptyState
-                  title="A time for you"
-                  message="Choose a tutor to explore their available consultations."
+                  title="Tutor availability"
+                  message="Select a tutor to view available consultation times."
                 />
               </section>
             )}

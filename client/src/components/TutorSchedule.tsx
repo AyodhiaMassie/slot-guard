@@ -66,11 +66,13 @@ export function TutorSchedule({
       </div>
       {!visible.length ? (
         <EmptyState
-          title={filter === 'booked' ? 'Room for a conversation' : 'Nothing on this page yet'}
+          title={filter === 'booked' ? 'No booked consultations' : 'No matching time slots'}
           message={
             filter === 'booked'
-              ? 'Booked students will appear here when they reserve your available times.'
-              : 'Create an appointment slot, or choose another filter.'
+              ? 'Student bookings will appear here.'
+              : managing
+                ? 'Create a time slot or choose another filter.'
+                : 'Use Manage availability to add a time slot, or choose another filter.'
           }
         />
       ) : (
@@ -102,14 +104,14 @@ export function TutorSchedule({
                         ? slot.student_name
                         : slot.status === 'closed'
                           ? 'Time removed from availability'
-                          : 'Ready for a student'}
+                          : 'Not booked'}
                     </strong>
                     <span>
                       {booked
                         ? slot.student_email
                         : slot.status === 'closed'
                           ? 'Students cannot book this time'
-                          : 'No booking yet'}
+                          : 'No student booked'}
                     </span>
                   </div>
                   <span

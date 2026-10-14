@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Notice } from '../types';
 import { Icon } from './Icon';
 
-export function LoadingState({ label = 'Loading your schedule…' }: { label?: string }) {
+export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => setSlow(true), 5000);
@@ -22,7 +22,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry: () 
       <span className="state-icon">
         <Icon name="refresh" />
       </span>
-      <h3>Let’s try that again</h3>
+      <h3>Unable to load data</h3>
       <p role="alert">{message}</p>
       <button className="button button-secondary" onClick={onRetry}>
         Try again

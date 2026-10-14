@@ -78,13 +78,13 @@ export function LoginPage() {
         <Logo light />
         <div className="story-content">
           <span className="eyebrow story-eyebrow">
-            <span className="online-dot" /> A little time. A lot of possibility.
+            <span className="online-dot" /> UNIVERSITY CONSULTATIONS
           </span>
           <h1>
-            A little guidance.
-            <br />A clear <em>next step.</em>
+            Book a
+            <br /><em>consultation.</em>
           </h1>
-          <p>Find your tutor, make time for a conversation, and move forward with confidence.</p>
+          <p>Browse tutors and book a 30-minute consultation.</p>
           <div className="story-benefits">
             <span>
               <Icon name="clock" />
@@ -92,15 +92,14 @@ export function LoginPage() {
             </span>
             <span>
               <Icon name="users" />
-              Your people, your pace
+              Tutor availability
             </span>
             <span>
-              <Icon name="shield" />A place in the schedule, secured
+              <Icon name="shield" />Confirmed appointments
             </span>
           </div>
         </div>
         <div className="story-footer">
-          <span>Built for students. Designed for possibility.</span>
           <div className="abstract-orbit" aria-hidden="true">
             <span />
             <span />
@@ -110,8 +109,7 @@ export function LoginPage() {
       </section>
       <section className="login-panel">
         <div className="login-form-wrap">
-          <span className="eyebrow">WELCOME TO SLOTGUARD</span>
-          <h2>Let’s make time.</h2>
+          <h2>Sign in to SlotGuard</h2>
           <p className="muted">Sign in to book a consultation or manage your availability.</p>
           {message && (
             <p className="inline-alert" role="status">
@@ -175,10 +173,10 @@ export function LoginPage() {
           </form>
           <div className="demo-heading">
             <span />
-            Explore the demo
+            Demo accounts
             <span />
           </div>
-          <p className="demo-intro">Choose an account to fill your details, then sign in.</p>
+          <p className="demo-intro">Select an account to fill in the form, then sign in.</p>
           <div className="demo-grid">
             {['Student', 'Tutor'].map((role) => (
               <section className="demo-group" key={role}>
@@ -216,7 +214,7 @@ export function LoginPage() {
           </div>
           <p className="demo-disclaimer">
             <span className="online-dot" />
-            Fictional university accounts. Feel free to explore.
+            Demo accounts use fictional data.
           </p>
         </div>
       </section>

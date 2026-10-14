@@ -56,7 +56,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       );
     }
     if (!payload || !('data' in payload))
-      throw new ApiError(502, 'SlotGuard returned an unexpected response. Please try again.');
+      throw new ApiError(502, 'Unexpected server response. Refresh to check the latest state before trying again.');
     return payload.data as T;
   } catch (error) {
     if (options.signal?.aborted) throw error;
@@ -74,7 +74,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 }
 
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+  return error instanceof Error ? error.message : 'The request could not be completed. Try again.';
 }
 
 export function createApi(token: string, onUnauthorized: () => void) {

@@ -5,6 +5,7 @@ export function ConfirmDialog({
   title,
   children,
   confirmLabel,
+  dismissLabel = 'Cancel',
   pending,
   onConfirm,
   onClose,
@@ -13,6 +14,7 @@ export function ConfirmDialog({
   title: string;
   children: ReactNode;
   confirmLabel: string;
+  dismissLabel?: string;
   pending: boolean;
   onConfirm: () => void;
   onClose: () => void;
@@ -99,7 +101,7 @@ export function ConfirmDialog({
         {children}
         <div className="dialog-actions">
           <button className="button button-secondary" onClick={onClose} disabled={pending}>
-            Go back
+            {dismissLabel}
           </button>
           <button
             className={`button ${destructive ? 'button-danger' : 'button-primary'}`}

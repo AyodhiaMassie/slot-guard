@@ -118,11 +118,13 @@ async function selectSlot() {
 describe('login and session lifecycle', () => {
   it('displays four demo accounts and signs into the Student workspace', async () => {
     renderApp();
+    expect(screen.getByRole('heading', { name: 'Sign in to SlotGuard' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Use / })).toHaveLength(4);
     await userEvent.click(screen.getByRole('button', { name: 'Use Alex (Student)' }));
     expect(screen.getByLabelText('Email address')).toHaveValue(student.email);
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     await screen.findByRole('button', { name: 'Find a tutor' });
+    expect(screen.getByRole('heading', { name: 'Find a tutor', level: 1 })).toBeInTheDocument();
     expect(sessionStorage.getItem('slotguard.session')).toContain('student-token');
     expect(screen.queryByRole('button', { name: 'Manage availability' })).not.toBeInTheDocument();
   });
@@ -141,6 +143,7 @@ describe('login and session lifecycle', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Use Maya (Tutor)' }));
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     await screen.findByRole('button', { name: 'Manage availability' });
+    expect(screen.getByRole('heading', { name: 'Manage your consultations', level: 1 })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Find a tutor' })).not.toBeInTheDocument();
   });
   it('restores the profile from the server and clears state on logout', async () => {
@@ -210,18 +213,18 @@ describe('Student booking and cancellation', () => {
     expect(await screen.findByText('2 available slots')).toBeInTheDocument();
     expect(screen.getAllByText(new RegExp(timeZone))).not.toHaveLength(0);
     await userEvent.click(screen.getByRole('button', { name: 'View Dr Noah Patel availability' }));
-    expect(await screen.findByText('No times available yet')).toBeInTheDocument();
+    expect(await screen.findByText('No available time slots')).toBeInTheDocument();
   });
   it('ignores delayed availability from the previously selected tutor', async () => {
     let complete: ((response: Response) => void) | undefined;
     override = (path) => path === '/api/tutors/3/slots'
       ? new Promise<Response>((resolve) => { complete = resolve; }) : undefined;
     await authenticated();
-    await screen.findByText('Finding available times…');
+    await screen.findByText('Loading available times…');
     await userEvent.click(screen.getByRole('button', { name: 'View Dr Noah Patel availability' }));
-    await screen.findByText('No times available yet');
+    await screen.findByText('No available time slots');
     await act(async () => { complete!(json({ data: available })); });
-    expect(screen.getByText('No times available yet')).toBeInTheDocument();
+    expect(screen.getByText('No available time slots')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Book / })).not.toBeInTheDocument();
   });
   it('waits for API confirmation before reporting a booking and refreshes appointments', async () => {
@@ -236,17 +239,18 @@ describe('Student booking and cancellation', () => {
     const dialog = await selectSlot();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm booking' }));
     expect(within(dialog).getByRole('button', { name: 'Saving…' })).toBeDisabled();
-    expect(screen.queryByText(/You're booked with/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Appointment confirmed with/)).not.toBeInTheDocument();
     history = [appointment];
     available = [secondSlot];
     await act(async () => {
       complete!(json({ data: appointment }, 201));
     });
-    expect(await screen.findByText(/You're booked with/)).toBeInTheDocument();
+    expect(await screen.findByText(/Appointment confirmed with/)).toBeInTheDocument();
     await userEvent.click(
       within(screen.getByRole('navigation')).getByRole('button', { name: 'My appointments' }),
     );
     expect(await screen.findByText('Confirmed')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'My appointments', level: 1 })).toBeInTheDocument();
     expect(screen.getByText(tutor.name)).toBeInTheDocument();
   });
   it('handles 409 conflicts without a false confirmation and refreshes available slots', async () => {
@@ -271,7 +275,7 @@ describe('Student booking and cancellation', () => {
     await authenticated();
     const dialog = await selectSlot();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm booking' }));
-    await screen.findByText(/You're booked with/);
+    await screen.findByText(/Appointment confirmed with/);
     await waitFor(() => expect(document.getElementById('main-content')).toHaveFocus());
   });
   it('cancels through the API, preserves history, and refreshes availability', async () => {
@@ -284,6 +288,7 @@ describe('Student booking and cancellation', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: `Cancel appointment with ${tutor.name}` }),
     );
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Keep appointment' })).toBeInTheDocument();
     await userEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel appointment' }),
     );
@@ -316,7 +321,8 @@ describe('Student booking and cancellation', () => {
           })
         : undefined;
     await authenticated();
-    expect(screen.getByText('Loading the tutor directory…')).toBeInTheDocument();
+    await waitFor(() => expect(complete).toBeDefined());
+    expect(screen.getByText('Loading tutors…')).toBeInTheDocument();
     await act(async () => {
       complete!(json({ error: { message: 'Service unavailable' } }, 500));
     });
@@ -356,11 +362,12 @@ describe('Tutor availability management', () => {
   it('creates a fixed-duration slot using a local datetime converted to UTC', async () => {
     await authenticated('tutor');
     await userEvent.click(screen.getByRole('button', { name: 'Manage availability' }));
+    expect(screen.getByRole('heading', { name: 'Manage availability', level: 1 })).toBeInTheDocument();
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     expect(screen.getByLabelText('Appointment date')).toHaveValue(dateInput(tomorrow));
-    await userEvent.click(screen.getByRole('button', { name: 'Create appointment slot' }));
-    expect(await screen.findByText(/Your new consultation time/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create time slot' }));
+    expect(await screen.findByText(/Time slot created/)).toBeInTheDocument();
     const mutation = fetchMock.mock.calls.find(
       ([, init]) => init.method === 'POST' && String(init.body).includes('starts_at'),
     );
@@ -375,16 +382,17 @@ describe('Tutor availability management', () => {
         : undefined;
     await authenticated('tutor');
     await userEvent.click(screen.getByRole('button', { name: 'Manage availability' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Create appointment slot' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Create time slot' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('already exists');
   });
   it('closes only an unbooked slot and refreshes its status', async () => {
     await authenticated('tutor');
     await userEvent.click(await screen.findByRole('button', { name: /^Close slot / }));
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Keep slot open' })).toBeInTheDocument();
     await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Close appointment slot' }),
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Close slot' }),
     );
-    expect(await screen.findByText(/Slot closed/)).toBeInTheDocument();
+    expect(await screen.findByText(/Time slot closed/)).toBeInTheDocument();
     expect(await screen.findByText('Time removed from availability')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Close slot / })).not.toBeInTheDocument();
   });

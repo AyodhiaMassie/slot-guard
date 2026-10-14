@@ -69,7 +69,7 @@ async function confirmBooking(target) {
   assert.equal(await dialog.getByRole('button', { name: 'Close dialog' })
     .evaluate((button) => button === document.activeElement), true, 'Forward Tab must stay inside the dialog.');
   await dialog.getByRole('button', { name: 'Confirm booking' }).click();
-  await target.getByText(/You're booked with/).waitFor();
+  await target.getByText(/Appointment confirmed with/).waitFor();
   await target.waitForFunction(() => document.activeElement?.id === 'main-content');
 }
 async function cancelTime(target, startsAt) {
@@ -161,11 +161,11 @@ try {
   const createdResponse = page.waitForResponse(
     (response) => response.url() === `${apiUrl}/slots` && response.request().method() === 'POST',
   );
-  await page.getByRole('button', { name: 'Create appointment slot', exact: true }).click();
+  await page.getByRole('button', { name: 'Create time slot', exact: true }).click();
   const created = await createdResponse;
   assert.equal(created.status(), 201);
   const newSlot = (await created.json()).data;
-  await page.getByText(/Your new consultation time/).waitFor();
+  await page.getByText(/Time slot created/).waitFor();
   await page.screenshot({
     path: fileURLToPath(new URL('tutor-desktop.png', artifactDirectory)),
     fullPage: true,
@@ -206,8 +206,8 @@ try {
     .locator(`.schedule-row:has(time[datetime="${newSlot.starts_at}"])`)
     .getByRole('button', { name: /Close slot/ })
     .click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Close appointment slot' }).click();
-  await page.getByText(/Slot closed/).waitFor();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close slot', exact: true }).click();
+  await page.getByText(/Time slot closed/).waitFor();
   await assertNoOverflow(page);
   await page.reload();
   await page.getByRole('button', { name: 'Manage availability' }).waitFor();

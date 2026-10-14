@@ -47,7 +47,7 @@ export function AvailabilityPanel({
         setSelectedSlot(null);
         onNotice({
           kind: 'success',
-          message: `You're booked with ${tutor.name}. Your appointment is saved in My appointments.`,
+          message: `Appointment confirmed with ${tutor.name}. View it in My appointments.`,
         });
         onRefresh();
       },
@@ -57,7 +57,7 @@ export function AvailabilityPanel({
           kind: 'error',
           message:
             error instanceof ApiError && error.status === 409
-              ? 'That slot is no longer available. We’ve refreshed the schedule so you can choose another time.'
+              ? 'That slot is no longer available. Choose another time.'
               : errorMessage(error),
         });
         onRefresh();
@@ -70,13 +70,12 @@ export function AvailabilityPanel({
       <div className="tutor-detail-heading">
         <span className="avatar avatar-large">{initials(tutor.name)}</span>
         <div>
-          <span className="eyebrow">YOUR NEXT CONVERSATION</span>
           <h2>{tutor.name}</h2>
-          <p>{tutor.specialty || 'Academic guidance'}</p>
+          <p>{tutor.specialty || 'Academic consultations'}</p>
         </div>
       </div>
       <p className="tutor-bio">
-        {tutor.description || 'Make time to talk through your questions and plan your next step.'}
+        {tutor.description || 'Select an available time to book a consultation.'}
       </p>
       <div className="section-divider" />
       <div className="panel-subheading">
@@ -88,13 +87,13 @@ export function AvailabilityPanel({
       </div>
       <p className="timezone-note">All times in {timeZone}</p>
       {resource.loading ? (
-        <LoadingState label="Finding available times…" />
+        <LoadingState label="Loading available times…" />
       ) : resource.error ? (
         <ErrorState message={resource.error} onRetry={onRefresh} />
       ) : !futureSlots.length ? (
         <EmptyState
-          title="No times available yet"
-          message="Try another tutor, or check back for new availability."
+          title="No available time slots"
+          message="Select another tutor or check again later."
         />
       ) : (
         <>
@@ -137,13 +136,13 @@ export function AvailabilityPanel({
       )}
       {selectedSlot && (
         <ConfirmDialog
-          title="Make it a date."
+          title="Confirm booking"
           confirmLabel="Confirm booking"
           pending={mutation.pending}
           onConfirm={confirmBooking}
           onClose={() => setSelectedSlot(null)}
         >
-          <p className="muted">A focused conversation with {tutor.name}.</p>
+          <p className="muted">Consultation with {tutor.name}.</p>
           <div className="confirmation-summary">
             <strong>{formatDateTime(selectedSlot.starts_at)}</strong>
             <span>{timeRange(selectedSlot.starts_at, selectedSlot.ends_at)} · 30 minutes</span>

@@ -44,7 +44,7 @@ export function StudentAppointments({
         onNotice({
           kind: 'success',
           message:
-            'Appointment cancelled. The time is available again, and your record is saved in History.',
+            'Appointment cancelled. You can view it in History.',
         });
         onRefresh();
       },
@@ -59,7 +59,7 @@ export function StudentAppointments({
   return (
     <section className="panel appointments-panel">
       <div className="panel-title">
-        <h2>Your conversations</h2>
+        <h2>Appointments</h2>
         <button className="text-button" onClick={onBrowse}>
           Find a tutor
           <Icon name="arrow" />
@@ -82,16 +82,16 @@ export function StudentAppointments({
         </button>
       </div>
       {loading ? (
-        <LoadingState />
+        <LoadingState label="Loading appointments…" />
       ) : error ? (
         <ErrorState message={error} onRetry={onRefresh} />
       ) : !visible.length ? (
         <EmptyState
-          title={tab === 'upcoming' ? 'Your next step starts here' : 'A fresh page'}
+          title={tab === 'upcoming' ? 'No upcoming appointments' : 'No appointment history'}
           message={
             tab === 'upcoming'
-              ? 'You have no upcoming appointments. Find a tutor and choose a time that works for you.'
-              : 'Past and cancelled appointments will stay here for your reference.'
+              ? 'Find a tutor and select an available time.'
+              : 'Past and cancelled appointments appear here.'
           }
         />
       ) : (
@@ -101,7 +101,7 @@ export function StudentAppointments({
               <span className="avatar">{initials(appointment.tutor_name)}</span>
               <div className="appointment-person">
                 <h3>{appointment.tutor_name}</h3>
-                <p>{appointment.tutor_specialty || 'Academic guidance'}</p>
+                <p>{appointment.tutor_specialty || 'Academic consultations'}</p>
               </div>
               <div className="appointment-time">
                 <strong>
@@ -135,6 +135,7 @@ export function StudentAppointments({
         <ConfirmDialog
           title="Cancel this appointment?"
           confirmLabel="Cancel appointment"
+          dismissLabel="Keep appointment"
           pending={mutation.pending}
           destructive
           onConfirm={confirmCancel}

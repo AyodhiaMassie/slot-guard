@@ -39,7 +39,7 @@ export function TutorDashboard({ view }: { view: WorkspaceView }) {
         setTarget(null);
         setNotice({
           kind: 'success',
-          message: 'Slot closed. It has been removed from student availability.',
+          message: 'Time slot closed. Students can no longer book it.',
         });
         refresh();
       },
@@ -54,14 +54,13 @@ export function TutorDashboard({ view }: { view: WorkspaceView }) {
   return (
     <>
       <PageHeading
-        eyebrow="A LITTLE TIME CAN MAKE A BIG DIFFERENCE"
         title={
-          view === 'schedule' ? 'Make room for their next step.' : 'A schedule that works for you.'
+          view === 'schedule' ? 'Manage your consultations' : 'Manage availability'
         }
         description={
           view === 'schedule'
-            ? 'Your upcoming conversations, and the students looking forward to them.'
-            : 'Publish a new time or close an unbooked slot. Every consultation lasts 30 minutes.'
+            ? 'View upcoming consultations and student bookings.'
+            : 'Create 30-minute consultation slots or close unbooked times.'
         }
         onRefresh={refresh}
       />
@@ -83,7 +82,7 @@ export function TutorDashboard({ view }: { view: WorkspaceView }) {
             <Icon name="clock" />
           </span>
           <div>
-            <span>Available times</span>
+            <span>Available time slots</span>
             <strong>
               {slots.loading || slots.error ? '—' : available.toString().padStart(2, '0')}
             </strong>
@@ -92,9 +91,9 @@ export function TutorDashboard({ view }: { view: WorkspaceView }) {
         <div className="summary-card summary-note">
           <Icon name="book" />
           <p>
-            One conversation.
+            Consultation length
             <br />
-            <strong>A world of possibility.</strong>
+            <strong>30 minutes</strong>
           </p>
         </div>
       </div>
@@ -105,7 +104,7 @@ export function TutorDashboard({ view }: { view: WorkspaceView }) {
         <div>
           {slots.loading ? (
             <section className="panel">
-              <LoadingState />
+              <LoadingState label="Loading your schedule…" />
             </section>
           ) : slots.error ? (
             <section className="panel">
@@ -123,8 +122,9 @@ export function TutorDashboard({ view }: { view: WorkspaceView }) {
       </div>
       {target && (
         <ConfirmDialog
-          title="Close this consultation time?"
-          confirmLabel="Close appointment slot"
+          title="Close this time slot?"
+          confirmLabel="Close slot"
+          dismissLabel="Keep slot open"
           destructive
           pending={mutation.pending}
           onConfirm={confirmClose}

@@ -33,7 +33,7 @@ export function AppShell({
       </a>
       <aside className="sidebar">
         <Logo />
-        <p className="brand-subtitle">Make space for your next step.</p>
+        <p className="brand-subtitle">University consultations</p>
         <div className="workspace-label">{user.role} workspace</div>
         <nav aria-label="Main navigation">
           {links.map((link) => (
@@ -52,15 +52,19 @@ export function AppShell({
         <div className="sidebar-note">
           <Icon name="book" />
           <p>
-            A little guidance.
+            Booking
             <br />
-            <strong>A clear next step.</strong>
+            <strong>information</strong>
           </p>
-          <span>One conversation can make a difference.</span>
+          <span>
+            {user.role === 'student'
+              ? 'Cancel upcoming appointments from My appointments.'
+              : 'Only unbooked slots can be closed.'}
+          </span>
         </div>
         <div className="sidebar-footer">
           <span className="online-dot" />
-          Fictional accounts · Real workflows
+          Demo accounts · Fictional data
         </div>
       </aside>
       <div className="workspace">
