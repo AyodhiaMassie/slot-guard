@@ -1,6 +1,8 @@
-# Deployment guide
+# Optional deployment reference
 
-The deployment target is a public GitHub repository, Render Free Static Site for the frontend, one Render Free Web Service for the API, and Neon Free PostgreSQL. The configuration is prepared; no hosted services or Git remote have been created. Follow this guide only when deployment is approved.
+SlotGuard is currently presented as a locally runnable portfolio project in its [public GitHub repository](https://github.com/AyodhiaMassie/slot-guard). There is no publicly hosted application. Follow the [README local setup](../README.md#local-installation) for the supported demonstration path.
+
+This optional reference preserves the earlier Render Free Static Site, Render Free Web Service, and Neon Free preparation for possible future use. No cloud services have been provisioned or verified. Deployment is outside the current scope and requires separate approval.
 
 ## Budget and prerequisites
 
@@ -10,20 +12,19 @@ Standard GitHub-hosted runners are free for a public repository. Render Free and
 
 Use Node.js **24.21.0** from `.node-version`, the existing npm lockfile, and a trusted computer for the manual database commands. Production values come from the dashboards; the production environment examples contain placeholders, not usable credentials.
 
-## 1. Publish the reviewed source
+## 1. Repository and CI
 
-Review and commit the prepared changes separately before publishing. Keep the existing commits. Actual environment files, internal project instructions/specifications, private verification reports, dependencies, and build output must remain excluded.
+The repository is already public and its [first CI run passed](https://github.com/AyodhiaMassie/slot-guard/actions/runs/38447521516). Keep the existing history and review future changes before committing or publishing. Actual environment files, internal project instructions/specifications, private verification reports, dependencies, and build output must remain excluded.
 
-Create an empty **public** GitHub repository named `slotguard`. Do not initialize it with a README, license, or `.gitignore`; those would introduce an unrelated initial history. Replace `<owner>` below with your GitHub username. These commands are for the approved deployment step, not preparation:
+Before a future approved deployment, check the repository and the CI result for the revision being deployed. The existing remote is `https://github.com/AyodhiaMassie/slot-guard.git`; do not create another repository or replace its history.
 
 ```sh
 git status --short
 git log --oneline
-git remote add origin https://github.com/<owner>/slotguard.git
-git push -u origin main
+git remote -v
 ```
 
-Check the public file list after pushing and open the Actions tab. Wait for **CI / Verify** to pass before connecting Render. Use the exact check name displayed by GitHub if configuring a required branch check.
+Open the Actions tab and require **CI / Verify** to pass before connecting Render. Use the exact check name displayed by GitHub if configuring a required branch check. Any later push or deployment still needs explicit approval.
 
 ### What CI verifies
 
@@ -33,7 +34,7 @@ One disposable PostgreSQL 18 service is mapped to `127.0.0.1:5432`. Its database
 
 The job migrates and seeds its test database, checks both TypeScript workspaces, builds both workspaces, and runs backend units, real API/database/concurrency tests, and frontend tests. Tests run sequentially against the shared test database. Any failed step fails the job; no required tests are skipped or allowed to fail.
 
-The service setup follows [GitHub's PostgreSQL service guide](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-postgresql-service-containers). The hosted workflow itself can only be verified after the source is pushed.
+The service setup follows [GitHub's PostgreSQL service guide](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-postgresql-service-containers). The GitHub workflow has run successfully; Render and Neon behavior remains unverified.
 
 Browser testing remains a local check. During preparation, bundled Chromium completed the full smoke twice, but an earlier run timed out waiting for focus on the workspace after a successful booking, while availability refreshes. The cause remains unresolved; investigate that behavior before making the browser test a required CI step. Do not mask it with automatic retries or silently skip its assertion. The isolated launcher below generates an ephemeral JWT secret and stops its own API and preview processes. When reliable, Chromium can run on a standard runner using [Playwright's CI installation](https://playwright.dev/docs/ci).
 
@@ -154,7 +155,7 @@ Record the assigned frontend URL. Set the backend `CORS_ORIGIN` to that exact or
 ## 6. Verify and enable CI-gated deployments
 
 1. Confirm both services are Free, billing is inactive, no payment method was added, and Neon is Free. Inspect usage dashboards and available quotas.
-2. Verify the GitHub **CI / Verify** run passed for the deployed commit. Hosted CI has not been run during preparation.
+2. Verify the GitHub **CI / Verify** run passed for the commit being deployed, even though the repository's first run already passed.
 3. Check the backend HTTPS health route, then sign in through the static site as both Student and Tutor. Inspect browser requests: no localhost address, mixed content, or CORS failure.
 4. Create a future half-hour slot as Tutor. Book it as Student, refresh/reload, and confirm the persisted appointment and the Tutor's Student details. Cancel it and confirm it becomes available again. Close an unbooked slot.
 5. In two independent browser sessions, sign in as different Students and select the same available slot before either books it. Confirm one reservation succeeds and the other receives a conflict; only one confirmed booking appears.

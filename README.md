@@ -1,83 +1,196 @@
 # SlotGuard
 
-SlotGuard is a university consultation booking application using fictional Student and Tutor accounts. Students find tutors, book 30-minute consultations, and manage appointments; Tutors publish and close availability. Its central requirement is that simultaneous requests cannot reserve the same appointment twice. PostgreSQL is the authority on booking availability.
+[![CI](https://github.com/AyodhiaMassie/slot-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/AyodhiaMassie/slot-guard/actions/workflows/ci.yml)
 
-The application includes an Express REST API, PostgreSQL persistence, JWT authentication, a responsive React frontend, and automated tests. Booking, cancellation, and availability management have been verified locally with real PostgreSQL and automated browser checks. GitHub Actions and deployment configuration are prepared; hosted CI and cloud deployment remain unverified.
+SlotGuard is a university consultation booking application. Students browse tutors, reserve 30-minute appointments, and manage cancellations. Tutors publish availability and see the students booked into their schedules.
 
-## Architecture
+The central engineering problem is **preventing double bookings when requests arrive together**. Availability can change after a student opens the booking dialog. SlotGuard coordinates booking, cancellation, and closure in PostgreSQL transactions, so a stale browser view cannot create a second confirmed reservation.
 
-The backend uses Node.js, Express 5, strict TypeScript, and `pg`. Routes validate input with Zod, authentication middleware verifies JWTs and reloads the user, and appointment services handle ownership and transactions. PostgreSQL uses a connection pool and parameterized queries. Supporting middleware provides configured CORS, security headers, JSON body limits, and in-memory request limiting. SQL migrations and queries are managed directly without an ORM.
+This is a **locally runnable portfolio project** with fictional demo accounts. There is no publicly hosted application.
 
-The client uses React 19, TypeScript, Vite, the Fetch API, and custom CSS. Vitest and React Testing Library exercise isolated frontend behavior; Playwright is a development-only dependency for reproducible browser integration smoke tests against the real API. Navigation uses React state because this MVP has one workspace per role and does not need deep links or a router dependency.
+## Screenshots and demonstration
+
+Captured from the running React frontend and Express API, backed by local PostgreSQL, at 1440 × 1000. All accounts and records are fictional. Click an image to view it at full size.
+
+| Sign in to SlotGuard | Find a tutor: available times |
+| --- | --- |
+| [![Sign in to SlotGuard with empty inputs and fictional demo account choices](docs/screenshots/login.png)](docs/screenshots/login.png) | [![Find a tutor showing Maya's profile and available consultation times](docs/screenshots/student-dashboard.png)](docs/screenshots/student-dashboard.png) |
+
+| My appointments: confirmed consultation | Manage your consultations: booked schedule |
+| --- | --- |
+| [![My appointments showing Alex's confirmed consultation with Maya](docs/screenshots/student-appointment.png)](docs/screenshots/student-appointment.png) | [![Manage your consultations with the Booked filter showing the same appointment for Alex Morgan](docs/screenshots/tutor-dashboard.png)](docs/screenshots/tutor-dashboard.png) |
+
+The [demo walkthrough](docs/demo.md) provides a 60–120-second recording sequence, including a booking conflict between two Student sessions. A demo video has not been recorded yet.
+
+## Features
+
+| Role | Capabilities |
+| --- | --- |
+| Student | Browse tutors and future availability; review and book a consultation; view upcoming appointments and past/cancelled history; cancel an owned upcoming booking. |
+| Tutor | View scheduled students; create future half-hour slots; filter available/booked/closed times; close owned unbooked slots. |
+| Both | Sign in with demo accounts; restore an unexpired session; receive validation, conflict, loading, and retry feedback; use a responsive interface with local timezone labels. |
+
+Closing a booked slot is rejected. Cancellation keeps the old booking in history and makes the slot available again. Role and ownership restrictions are enforced by the API.
+
+## Technical architecture
+
+```mermaid
+flowchart LR
+    client["React + TypeScript<br/>Role-specific UI and Fetch client"]
+    api["Express REST API<br/>JWT, authorization, Zod validation"]
+    database["PostgreSQL<br/>Transactions, row locks, constraints"]
+    client -->|HTTP / JSON| api
+    api -->|Parameterized SQL through pg| database
+```
+
+The client centralizes requests in [api/client.ts](client/src/api/client.ts). Booking confirmation appears after the API succeeds; bookings, cancellations, closures, and conflicts trigger new reads. Aborted or stale requests cannot overwrite newer account/tutor state. Navigation uses React state rather than path-based routing.
+
+The backend separates routes, authentication, validation, appointment services, and database operations. JWTs expire after one hour; middleware checks the signing algorithm, issuer, audience, and expiry, then reloads the user before applying role and ownership checks. Passwords use bcrypt. Responses follow consistent JSON contracts, with configured CORS, body/request limits, security headers, and safe error handling.
+
+### Booking integrity
+
+[AppointmentService](server/src/services/appointments.ts) uses one pooled database client per transaction. A booking locks its slot with `SELECT ... FOR UPDATE`, rechecks availability, inserts the reservation, and commits. Another booking for that slot waits, then observes the committed reservation and receives `409 Conflict`.
+
+Cancellation and closure coordinate on that same slot row. Cancellation locks the slot before the booking to maintain a consistent lock order. Failures roll back, and every outcome releases the client.
+
+The [SQL migration](database/migrations/001_initial.sql) supplies a second enforcement layer:
+
+```sql
+CREATE UNIQUE INDEX one_confirmed_booking_per_slot
+ON bookings (slot_id) WHERE status = 'confirmed';
+```
+
+This index allows cancelled history while preventing two confirmed bookings for one slot. Foreign keys, role/status checks, unique tutor start times, half-hour boundaries, and triggers enforce the other scheduling invariants. UTC timestamps use `TIMESTAMPTZ`; the UI displays the browser's timezone.
+
+| Table | Responsibility |
+| --- | --- |
+| `users` | Fictional Student/Tutor identities, unique email, bcrypt password hash, tutor profile. |
+| `appointment_slots` | Tutor ownership, UTC start time, open/closed status, unique tutor/start pair. |
+| `bookings` | Student and slot references, confirmed/cancelled status, retained cancellation history. |
+
+A separate `schema_migrations` table records applied SQL versions and checksums. Migrations run explicitly, transactionally, and under an advisory lock; there is no ORM or automatic schema synchronization.
+
+## Technology stack
+
+| Layer | Technologies |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite, Fetch API, custom CSS |
+| Backend | Node.js, Express 5, TypeScript, Zod, JWT, bcrypt |
+| Database | PostgreSQL, `pg`, parameterized SQL, versioned SQL migrations |
+| Testing | Vitest, Supertest, React Testing Library, Playwright for local browser checks |
+| CI | GitHub Actions, Ubuntu runner, isolated PostgreSQL 18 service |
 
 ```text
-client/src/
-  App.tsx, main.tsx      Role-specific workspace and React entry point
-  api/client.ts         Typed Fetch client, pagination, timeout, safe errors
-  auth/AuthProvider.tsx Login, session restoration, expiry, logout
-  components/           Navigation, availability, appointment lists, forms, feedback
-  pages/                Login, Student dashboard, Tutor dashboard
-  hooks/                Aborted reads, mutations, local clock
-  utils/dates.ts        Local formatting and UTC scheduling validation
-  types.ts, styles.css  API response types and responsive custom styling
-client/tests/           Component, API client, date, and real-browser smoke tests
-server/src/
-  app.ts, index.ts       App composition and process lifecycle
-  config.ts             Environment validation
-  routes.ts             REST endpoints and request validation
-  auth.ts               JWT, bcrypt, role and ownership checks
-  errors.ts             Consistent, safe error responses
-  services/             Appointment queries and business rules
-  db/                   Pool, transaction helper, migrations, seeds
-  scripts/              Explicit migration and maintenance commands
-server/tests/           Vitest unit and real-database Supertest tests
-database/migrations/    Versioned SQL schema
-scripts/                Optional Windows local PostgreSQL setup
+client/src/           UI, authentication state, API client, date utilities
+client/tests/         Component, API client, utility, and browser tests
+server/src/           REST routes, middleware, services, database commands
+server/tests/         Unit tests and real PostgreSQL integration tests
+database/migrations/  Versioned schema and database safeguards
+.github/workflows/    Continuous integration
+docs/                 Screenshots, demo guide, optional deployment reference
 ```
 
-## Local setup
+## Testing and CI
 
-Requires Node.js 22.12+ (22.x), 24.x, or 26+, npm, and PostgreSQL 16 or newer. `.node-version` pins Node.js 24.21.0, which was used for local verification. Commands below run from the repository root. On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`.
+Local verification passed **129 tests**, both TypeScript checks, and both production builds:
+
+| Suite | Tests | Coverage |
+| --- | ---: | --- |
+| Backend unit | 45 | Validation, authorization helpers, booking rules, configuration and TLS/test-target safety. |
+| API/database integration | 30 | Authentication, roles/ownership, SQL constraints, rollback, persistence, cancellation/closure, seeds, and concurrent requests against real PostgreSQL. |
+| Frontend | 54 | Login/session lifecycle, server-confirmed mutations, conflicts, pagination, request cancellation, keyboard dialogs, and date handling. |
+
+The concurrency test holds a slot lock on a third connection until **both Student HTTP requests are observed waiting** in `pg_stat_activity`. After releasing the lock, it asserts one `201 Created`, one `409 Conflict`, and exactly one confirmed database row. Other tests race booking with closure, cancellation with rebooking/closure, and repeated cancellation. Database mocks do not substitute for these tests.
+
+[CI](.github/workflows/ci.yml) installs the lockfile, prepares a disposable PostgreSQL 18 database, runs both typechecks/builds, and executes the unit, integration, and frontend suites on pushes and pull requests to `main`. The [first GitHub run passed](https://github.com/AyodhiaMassie/slot-guard/actions/runs/38447521516). CI does not deploy the application or use a production database.
+
+Frontend component tests isolate Fetch responses. Browser checks exercise the real UI/API/database separately from Vitest; they remain local because the existing successful-booking focus assertion has an intermittent timeout. For manual verification, follow the [demo walkthrough](docs/demo.md).
+
+## Local installation
+
+### 1. Prerequisites and dependencies
+
+Use **Node.js 24.21.0** from [.node-version](.node-version), npm, Git, and **PostgreSQL 18**, the database version used locally and in CI. PostgreSQL's `createuser`, `createdb`, and `psql` commands must be on your PATH for the manual setup below. Commands run from repository root unless stated otherwise.
 
 ```sh
-npm ci
+git clone https://github.com/AyodhiaMassie/slot-guard.git
+cd slot-guard
+npm ci --include=dev
 ```
 
-Create two separate databases: `slotguard` for the application and `slotguard_test` for tests. Give the local database role permission to create tables, functions, and triggers in these databases. The test role must own the tables to create historical fixtures. Configure authentication with a password.
+In Windows PowerShell, use `npm.cmd` / `npx.cmd` if execution policy blocks their `.ps1` wrappers.
 
-For example, with an existing local PostgreSQL installation and a configured login role:
+### 2. Configure local PostgreSQL
+
+Choose **one** setup method. Keep application and test data in separate databases.
+
+**Existing PostgreSQL installation:** start PostgreSQL, then create a login role and two databases. These commands assume the administrator role is `postgres` and the server listens on `127.0.0.1:5432`; adjust those values for your installation. Password prompts keep credentials out of command history.
 
 ```sh
-createdb -h 127.0.0.1 -U slotguard slotguard
-createdb -h 127.0.0.1 -U slotguard slotguard_test
+createuser -h 127.0.0.1 -p 5432 -U postgres -W --pwprompt slotguard
+createdb -h 127.0.0.1 -p 5432 -U postgres -W -O slotguard slotguard
+createdb -h 127.0.0.1 -p 5432 -U postgres -W -O slotguard slotguard_test
 ```
 
-Copy `server/.env.example` to `server/.env` and `server/.env.test.example` to `server/.env.test`. Set database URLs with your local credentials and generate a random JWT secret:
+Run this as your PostgreSQL administrator if local authentication uses a different administrator identity. The `slotguard` role owns both databases and the tables created by migrations. Ownership is required for integration tests that create historical fixtures. Do not use a database containing real or application data as the test database.
 
-```sh
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-```
-
-Environment files are ignored by Git. For database passwords containing reserved URL characters, percent-encode the password in the URL. npm workspace scripts run inside `server/`, where dotenv reads these files.
-
-On Windows, the optional helper creates its own cluster in `.local/postgres`, listens only on `127.0.0.1:55432`, creates both databases, and generates the environment files with random credentials. It requires installed PostgreSQL binaries and refuses to overwrite an existing cluster or environment files. Run it in a normal local PowerShell session:
+**Windows alternative:** on a fresh checkout, the [local setup helper](scripts/setup-local-postgres.ps1) creates a separate cluster and both databases, generates random credentials and the server environment files, and starts PostgreSQL on `127.0.0.1:55432`. It requires installed PostgreSQL binaries and refuses to overwrite an existing cluster or environment files. Run it before copying templates:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup-local-postgres.ps1
-# For a different installation:
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup-local-postgres.ps1 -PostgresBin 'C:\Program Files\PostgreSQL\17\bin'
+# If PostgreSQL is installed elsewhere, add: -PostgresBin 'C:\path\to\PostgreSQL\18\bin'
 ```
 
-Start an existing helper-created cluster after a reboot, or stop it when finished:
+For a helper-created cluster, restart it after reboot or stop it when finished:
 
 ```powershell
 & 'C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe' -D "$PWD\.local\postgres" -l "$PWD\.local\postgres.log" -o '-p 55432 -h 127.0.0.1' -w start
 & 'C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe' -D "$PWD\.local\postgres" -m fast -w stop
 ```
 
-Copy `client/.env.example` to `client/.env` if you need to change the public API address. It defaults to `http://localhost:3000/api`. Keep `CORS_ORIGIN=http://localhost:5173` in the server environment; use the frontend at exactly that origin. A different host, scheme, or port needs an explicit matching server CORS origin. Do not place a database URL or JWT secret in client environment variables.
+### 3. Configure environment variables
 
-Initialize and run the API in one terminal:
+For manual database setup, copy the templates on a fresh checkout:
+
+```sh
+cp server/.env.example server/.env
+cp server/.env.test.example server/.env.test
+cp client/.env.example client/.env
+```
+
+PowerShell equivalents:
+
+```powershell
+Copy-Item server/.env.example server/.env
+Copy-Item server/.env.test.example server/.env.test
+Copy-Item client/.env.example client/.env
+```
+
+If you used the Windows helper, keep its generated server files and copy only the client template. Edit the ignored files with your local settings. In the database URLs, replace the password placeholder with the role password you chose; percent-encode reserved URL characters. Use your actual PostgreSQL port (`5432` for the manual example, `55432` for the helper).
+
+Generate a JWT signing secret, then paste it into `server/.env`:
+
+```sh
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+The helper already generates this secret. Actual environment files are ignored; never put a database password or signing secret in frontend variables.
+
+| File | Variable | Local setting |
+| --- | --- | --- |
+| `server/.env` | `DATABASE_URL` | Your local PostgreSQL URL ending in `/slotguard`. |
+| | `JWT_SECRET` | Random secret of at least 32 characters; placeholders are rejected. |
+| | `CORS_ORIGIN` | `http://localhost:5173` |
+| | `PORT`, `NODE_ENV` | `3000`, `development` |
+| | `TRUST_PROXY_HOPS`, `DB_POOL_MAX` | `0`, `10` |
+| `server/.env.test` | `TEST_DATABASE_URL` | Your local PostgreSQL URL ending in `/slotguard_test`. |
+| `client/.env` | `VITE_API_BASE_URL` | `http://localhost:3000/api` |
+
+npm workspace scripts read server environment files from `server/`. Vite reads the client file from `client/`. If you change ports, update the API URL and exact CORS origin together and restart the affected processes. Loopback PostgreSQL can run without TLS; remote database URLs require exactly one `sslmode=verify-full`.
+
+### 4. Migrate, seed, and start
+
+In the first terminal:
 
 ```sh
 npm run db:migrate
@@ -85,184 +198,73 @@ npm run db:seed
 npm run dev:server
 ```
 
-Run the frontend in a second terminal:
+In a second terminal, from the same repository root:
 
 ```sh
 npm run dev:client
 ```
 
-Open **http://localhost:5173**. Select a demo account to fill the form and press Sign in. `npm run dev` is also an alias for backend development. Both Vite development and preview use port 5173 and fail if it is occupied.
+Open **http://localhost:5173**. Use that exact frontend origin; switching to `127.0.0.1` without updating CORS can cause requests to fail. The API health check is **http://localhost:3000/api/health**. Vite fails if port 5173 is occupied.
 
-The default API URL is `http://localhost:3000/api`. Build both workspaces, then start the compiled API and preview the built frontend in separate terminals:
+### 5. Try the demo accounts
 
-```sh
-npm run typecheck
-npm run build
-npm start
-```
+Click an account on the login page to fill its credentials, then select **Sign in**.
 
-```sh
-npm run preview:client
-```
-
-Migrations run explicitly and transactionally, with an advisory lock and checksums. Do not edit applied migrations; add a new version. Startup checks connectivity and binds to `0.0.0.0` using the configured port. SIGINT/SIGTERM close the HTTP server and connection pool.
-
-## Environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection URL; remote hosts require exactly one `sslmode=verify-full` |
-| `JWT_SECRET` | Random secret of at least 32 characters; placeholder secrets are rejected |
-| `CORS_ORIGIN` | Required comma-separated exact HTTP/HTTPS frontend origins, e.g. `http://localhost:5173` |
-| `PORT` | HTTP port; default `3000` |
-| `NODE_ENV` | `development`, `test`, or `production`; default `development` |
-| `TRUST_PROXY_HOPS` | Number of trusted reverse-proxy hops; default `0`, set only for the actual network topology |
-| `DB_POOL_MAX` | Maximum pooled connections; default `10`, minimum `2` |
-| `TEST_DATABASE_URL` | Dedicated local test database URL, read from `server/.env.test` |
-| `VITE_API_BASE_URL` | Public API base URL in `client/.env`; default `http://localhost:3000/api` |
-
-The backend requires verified TLS for remote PostgreSQL hosts and rejects URL query options that can override the validated host or weaken TLS. Local PostgreSQL can use a loopback URL without TLS. Tests accept only local URLs without query parameters. Production example templates are available in `server/.env.production.example` and `client/.env.production.example`; replace their placeholders in the hosting dashboards, keeping actual environment files private. Frontend builds on Render require an explicit HTTPS API URL and reject missing, loopback, or placeholder values.
-
-## Demo accounts and maintenance
-
-All accounts and profiles are fictional. These credentials grant only their Student or Tutor role.
-
-| Role | Email | Password |
+| Role | Email | Public demo password |
 | --- | --- | --- |
 | Student | `alex.student@slotguard.demo` | `DemoStudent!2026` |
 | Student | `sam.student@slotguard.demo` | `DemoStudent!2026` |
 | Tutor | `maya.tutor@slotguard.demo` | `DemoTutor!2026` |
 | Tutor | `noah.tutor@slotguard.demo` | `DemoTutor!2026` |
 
-Seeding hashes passwords with bcrypt cost 12 and inserts missing users. It preserves existing passwords, profile fields, closed slots, and booking history. Each tutor receives four half-hour slots per day for the next seven UTC dates. Repeated seeding on the same UTC day creates no duplicate users or slots. As dates advance, it adds the new future dates without deleting old data.
+Seeding adds four half-hour slots per tutor on each of the next seven UTC dates. Repeated seeds preserve users, passwords, closed slots, and booking history. As dates advance, replenish future availability with `npm run db:replenish`; it uses the application `DATABASE_URL` and does not reset existing data.
+
+### 6. Run checks and production builds
 
 ```sh
-npm run db:replenish
-```
-
-This is a controlled local maintenance command, using the configured application database. There is no public reset endpoint. If an existing demo email has an incompatible role, seeding fails rather than changing its identity.
-
-## Database and concurrency
-
-The three domain tables are:
-
-- `users`: unique normalized email, bcrypt hash, safe profile fields, fixed `student`/`tutor` role.
-- `appointment_slots`: Tutor foreign key, UTC `starts_at`, `open`/`closed` status, unique `(tutor_id, starts_at)`, finite timestamps on half-hour boundaries. Duration is always 30 minutes, so there is no variable-duration field or redundant booking flag.
-- `bookings`: slot and Student foreign keys, `confirmed`/`cancelled` status, creation and cancellation timestamps. Cancelled history remains available after rebooking.
-
-The technical `schema_migrations` table tracks applied SQL versions and checksums. Query indexes support tutor availability and appointment history. The required partial unique index `one_confirmed_booking_per_slot` permits at most one confirmed booking per slot while retaining cancelled records.
-
-Booking uses one pooled client for `BEGIN`, `SELECT ... FOR UPDATE` on the slot, availability checks, insertion, and `COMMIT`. Cancellation locks the slot before the booking and rechecks the booking after acquiring its lock. Closure locks the same slot and refuses confirmed bookings. Every failure rolls back, and every outcome releases the client. The database triggers also reject invalid roles, past slot creation, unavailable reservations, booked-slot closure, and changes to appointment ownership or cancelled history. Database administrators can bypass triggers; that capability is not exposed through the API.
-
-All instants are stored as `TIMESTAMPTZ` and returned as ISO 8601 UTC strings. Slot creation accepts explicit UTC or numeric-offset timestamps that resolve to a UTC half-hour boundary. The frontend displays local dates, years, and times with an explicit IANA timezone indication. It converts a Tutor's local date/time choice to UTC, rejects past/nonexistent instants, and filters the selectable times against UTC half-hour boundaries.
-
-## Frontend workflows and components
-
-| Component | Responsibility |
-| --- | --- |
-| `AuthProvider` | Server-backed login/profile restoration; token expiry, 401 handling, logout |
-| `App` / `AppShell` | Student/Tutor workspace selection, responsive navigation, account and timezone |
-| `LoginPage` | Four visible demo credentials, form validation, sign-in feedback, slow-connection state |
-| `StudentDashboard` | Tutor directory, tutor selection, next appointment, coordinated data refresh |
-| `AvailabilityPanel` | Local date/time selection, booking confirmation, conflict feedback |
-| `StudentAppointments` | Upcoming/history views, owned appointment cancellation |
-| `TutorDashboard` / `TutorSchedule` | Actual booked Students, availability filters, closing unbooked times |
-| `CreateSlotForm` | Valid future start choices, fixed 30-minute duration, creation feedback |
-| `ConfirmDialog` / feedback components | Keyboard focus containment/restoration, loading, retry, empty, success/error states |
-
-`api/client.ts` is the only production module issuing HTTP requests. It uses the existing `{ data, meta }` / `{ error }` contracts and Bearer authorization, reads every page of a list, and preserves HTTP conflict/validation errors. No production schedule or booking data is mocked. Booking confirmation appears only after an API success response. Booking, cancellation, creation, closure, and conflicts trigger new API reads rather than optimistic appointment updates. A manual Refresh action retrieves changes made by other demo users.
-
-Read and mutation hooks abort in-flight work on unmount and ignore stale responses. Requests have a 90-second timeout to allow a free-hosting cold start; interrupted mutations ask the user to refresh before retrying because a missing response does not prove the database write failed. Session restoration retains a saved token when the service is temporarily unavailable and offers Retry or Return to sign in. Confirmation dialogs retain focus while saving and return it to the workspace when a refreshed list removes their original trigger.
-
-Only the token and its expiry are stored in `sessionStorage`; the user profile is restored from `/api/auth/me`. A protected 401 clears the session, and an idle expiry timer plus focus/visibility checks handle expired sessions. A delayed response from an old account cannot expire a newer account's session. `sessionStorage` remains accessible to scripts on the origin, so XSS could expose a token; no secret signing key is shipped to the client. If browser storage is unavailable, authentication works in memory until reload.
-
-## API contract
-
-Success responses use `{ "data": ... }`. List responses also contain `{ "meta": { "limit": 100, "offset": 0 } }`. Errors use `{ "error": { "code": "...", "message": "...", "details": [...] } }`, with validation details only when relevant.
-
-Protected requests require `Authorization: Bearer <token>`. Login returns `data.token`, `data.expires_in` (3600 seconds), and `data.user`. JWTs use HS256, a fixed issuer/audience, and expiration. Password hashes are never returned. API responses use `Cache-Control: no-store` to prevent storage of tokens and account data. There is no signup endpoint.
-
-| Method | Endpoint | Access / request |
-| --- | --- | --- |
-| POST | `/api/auth/login` | Public; `{ "email": "...", "password": "..." }` |
-| GET | `/api/auth/me` | Authenticated safe profile |
-| GET | `/api/tutors` | Authenticated; profiles and `available_slot_count` |
-| GET | `/api/tutors/:id/slots` | Authenticated; future open unreserved slots with `ends_at` |
-| POST | `/api/slots` | Tutor; `{ "starts_at": "2099-01-01T09:30:00Z" }` |
-| GET | `/api/slots/mine` | Tutor; own slots, confirmed booking and student details |
-| PATCH | `/api/slots/:id/close` | Owning Tutor; no body or `{}`; repeated closure is idempotent |
-| POST | `/api/bookings` | Student; `{ "slot_id": 123 }` |
-| GET | `/api/bookings/mine` | Student's own history or Tutor's appointment history |
-| PATCH | `/api/bookings/:id/cancel` | Owning Student; no body or `{}`; only upcoming confirmed bookings |
-| GET | `/api/health` | Public; checks database connectivity |
-
-All list endpoints support `?limit=20&offset=0` (limit 1–100, offset 0–1,000,000). Unknown or repeated query keys and unknown body fields are rejected. IDs are positive PostgreSQL integers; JSON booking IDs must be numbers. Availability sorts by ascending start time; own slots and booking history sort by descending start time, with ID tie-breakers. History includes past and cancelled bookings. Paginate with the next offset when a page is full.
-
-Successful reads/updates return `200`, creations `201`. Validation errors return `400`, missing/invalid authentication `401`, role/ownership failures `403`, missing records `404`, and scheduling/booking conflicts `409`. Request limits return `429`, oversized JSON returns `413`, unsupported JSON encodings return `415`, and unexpected failures return a safe `500` without database messages. Health returns `500` when its database check fails. Login allows 20 failed requests per IP per 15 minutes; the API allows 300 requests per IP per minute, excluding health checks.
-
-Example login in PowerShell:
-
-```powershell
-$session = Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/auth/login -ContentType application/json -Body '{"email":"alex.student@slotguard.demo","password":"DemoStudent!2026"}'
-$headers = @{ Authorization = "Bearer $($session.data.token)" }
-Invoke-RestMethod -Uri http://localhost:3000/api/tutors -Headers $headers
-```
-
-## Tests and verification
-
-```sh
-npm run test:unit
-npm run test:integration
-npm run test:client
-npm run db:prepare:test
-npm test
 npm run typecheck
 npm run build
+npm test
 ```
 
-`npm test` runs backend and frontend suites and requires real PostgreSQL. `npm run test:server` runs only the backend; `npm run test:client` runs frontend tests without requiring a database. The original `test:unit` and `test:integration` scripts retain their backend scope. Frontend component tests mock Fetch responses in isolation. Backend integration tests never substitute a database mock or silently skip when PostgreSQL is unavailable. They apply migrations and truncate the three domain tables between cases. They use only `TEST_DATABASE_URL`, require a local database named `slotguard_test` or `slotguard_<suffix>_test`, reject connection query parameters, and verify `current_database()` before any destructive setup. Never put application or production data in that database, and do not run two integration suites against the same test database simultaneously.
+`npm test` requires the dedicated real PostgreSQL test database and runs all backend/frontend suites. Integration setup truncates the domain tables between cases. Test guards permit only loopback databases named `slotguard_test` or `slotguard_<suffix>_test`, reject URL query options, and check `current_database()` before setup. Do not run two integration suites against the same database simultaneously.
 
-Unit tests cover input/date validation, environment/test-target safety, authorization helpers, and booking decisions. Integration tests cover login, JWT algorithm/issuer/audience/expiration, direct API authentication, roles and ownership, production-origin CORS preflight, cache prevention, malformed request encodings, UTC scheduling, availability, persistence through a separate pool, transaction rollback, cancellation and history, closure, database constraints, repeated migrations/seeding, request limits, and safe database failure handling.
+Individual checks are available as `npm run test:unit`, `npm run test:integration`, and `npm run test:client`. After building, `npm start` runs the compiled API; `npm run preview:client` in a second terminal serves the production frontend on port 5173. Stop development processes first to free the ports.
 
-The required concurrency test starts two simultaneous HTTP requests from distinct Students while a third PostgreSQL connection holds the target slot lock. It observes both requests waiting in `pg_stat_activity`, releases the lock, and asserts exactly one `201`, one `409`, and one confirmed row. Additional tests race booking with closure, cancellation with rebooking/closure, and two cancellations.
-
-Frontend tests cover login success/failure, role-specific navigation, restored/expired sessions, logout, delayed responses after account/tutor changes, loading/error/retry states, API-confirmed booking, 409 conflict refresh, cancellation/history, Tutor creation/closure, dialog focus and keyboard navigation, pagination, cold-start timeout behavior, and local date validation.
-
-For the real browser smoke, start the backend and frontend (development or compiled preview) first, seed fictional demo accounts, and have Microsoft Edge installed:
-
-```sh
-npm run test:browser
-```
-
-This optional smoke uses Playwright with the installed Edge browser. It runs through the actual UI and real PostgreSQL, uses a second browser session to cause a genuine stale-slot conflict, and checks dialog keyboard navigation, focus restoration, mobile width, session restoration, and timezone behavior in Kuala Lumpur, New York (including a spring DST gap), and Kathmandu. It cancels its successful bookings and closes its newly created slot; fictional cancelled history and closed slots remain. It does not truncate the application database. Screenshots are written under ignored `.local/phase-2-browser/`. Its URLs are restricted to localhost. Set `SLOTGUARD_BROWSER_CHANNEL=chrome` if using an installed Chrome browser; `SLOTGUARD_FRONTEND_URL` and `SLOTGUARD_API_URL` can select other local ports, with matching frontend API configuration and CORS.
-
-For a production smoke isolated from application data, build both workspaces, configure the local `TEST_DATABASE_URL`, and run:
+For an optional real-browser smoke isolated from application data:
 
 ```sh
 npm run test:browser:isolated
 ```
 
-This command verifies the test database, migrates and seeds it, builds a separate frontend under `.local/`, and starts its own compiled API and preview on ports 3301 and 5181. It stops those processes when finished. Do not run another integration suite against the same test database simultaneously. The browser default is Edge; bundled Chromium can be installed with Playwright and selected with `SLOTGUARD_BROWSER_CHANNEL=chromium`.
+This uses the local test database, migrates/seeds it, starts its own compiled API and frontend preview on ports 3301/5181, and stops them afterward. Build first and have Microsoft Edge installed. For bundled Chromium, run `npx --no-install playwright install chromium` and set `SLOTGUARD_BROWSER_CHANNEL=chromium` in your shell; Linux installs need `--with-deps`. Do not run integration tests against that database at the same time. Screenshots and temporary builds from this smoke stay under ignored `.local/`.
 
-The test suites contain **54 frontend tests and 75 backend tests** (45 unit and 30 real-PostgreSQL integration tests). The concurrency test verifies one successful reservation, one conflict, and exactly one confirmed booking for simultaneous requests. Local verification and the commands for reproducing CI are described in the [deployment guide](docs/deployment.md); hosted CI and deployment require separate verification after publishing.
+## REST API
 
-## Hosting preparation
+Protected routes require `Authorization: Bearer <token>`. Success responses use `{ data }`, paginated lists add `{ meta }`, and failures use `{ error: { code, message } }`, with validation details when relevant.
 
-The intended services are Render Free static hosting, one Render Free Node web service, and Neon Free PostgreSQL. The [deployment guide](docs/deployment.md) contains the exact dashboard settings, environment variables, protected manual migration process, CI behavior, verification checklist, and troubleshooting. No cloud resources or Git remote have been created. Keep the repository root as the build directory so npm workspaces, the lockfile, and `database/migrations` remain available.
-
-| Service | Build | Runtime / output |
+| Method | Route | Access |
 | --- | --- | --- |
-| Frontend | `npm ci --include=dev && npm run build --workspace client` | Publish `client/dist` |
-| Backend | `npm ci --include=dev && npm run build --workspace server` | `npm start`; health path `/api/health` |
+| POST | `/api/auth/login` | Public demo login |
+| GET | `/api/auth/me` | Authenticated profile |
+| GET | `/api/tutors` | Authenticated tutor directory |
+| GET | `/api/tutors/:id/slots` | Authenticated availability |
+| POST | `/api/slots` | Tutor; `{ starts_at }` |
+| GET | `/api/slots/mine` | Tutor's own schedule |
+| PATCH | `/api/slots/:id/close` | Owning Tutor |
+| POST | `/api/bookings` | Student; `{ slot_id }` |
+| GET | `/api/bookings/mine` | Own Student/Tutor appointment history |
+| PATCH | `/api/bookings/:id/cancel` | Owning Student |
+| GET | `/api/health` | Public database connectivity check |
 
-Configure `VITE_API_BASE_URL` with the backend's HTTPS `/api` URL **before building the frontend**; changing it requires a rebuild. For the backend, set `NODE_ENV=production`, a random `JWT_SECRET`, the exact HTTPS frontend origin in `CORS_ORIGIN`, and the Neon `DATABASE_URL`. The API already binds to `0.0.0.0` and reads the platform's `PORT`, as [Render requires](https://render.com/docs/web-services#port-binding). Verify Render's proxy chain before public release; an incorrect `TRUST_PROXY_HOPS` can undermine IP-based request limits. Use `.node-version` and `NODE_VERSION=24.21.0` to keep builds on the verified runtime.
+List endpoints accept `limit` (1–100) and `offset` (0–1,000,000). New slot timestamps must include UTC or a numeric offset and resolve to a future UTC half-hour boundary. Responses use `200`/`201` for success, `400` for validation, `401`/`403` for authentication/authorization, `404` for missing records, and `409` for conflicts. See [routes](server/src/routes.ts) and [validation](server/src/validation.ts) for the contracts.
 
-For the initial single-service deployment, use a direct Neon URL, `DB_POOL_MAX=5`, and exactly one `sslmode=verify-full`. Run `npm run db:migrate`, then `npm run db:seed`, from a trusted environment configured with that database URL using the protected prompt in the guide. Render Free has no pre-deploy command; builds and API startup do not run migrations or seeds. Keep credentials out of command history and Git. Replenish future slots using `npm run db:replenish` when needed. [Neon's pooling documentation](https://neon.com/docs/connect/connection-pooling) describes the transaction pooler's session-setting limitations; validate timeout settings before switching the API to a pooled URL. Actual Neon TLS/connectivity has not been tested yet. Local PostgreSQL files and the Windows helper are not required by the deployed API.
+## Known limitations
 
-[Render Free](https://render.com/docs/free) web services sleep after 15 idle minutes and can take about a minute to restart. [Neon Free](https://neon.com/docs/introduction/plans) also suspends idle compute and enforces usage limits. Keep the budget at $0: select Free plans, avoid adding payment methods or enabling paid features, and recheck both provider dashboards before creating services. Quota exhaustion can suspend service; no keep-alive polling is configured.
+- Local Node.js/PostgreSQL installation is required; there is no hosted demo or continuous deployment.
+- Accounts and records are fictional. Visitors using the same account/database share its data; there is no registration, password recovery, or public reset endpoint.
+- Tokens live in `sessionStorage`, with the associated XSS exposure. They expire after one hour; there is no refresh/revocation endpoint. Request limits are process-local.
+- Rescheduling means cancelling and booking again. Navigation selection resets on reload. Repeated DST hours use the browser's first occurrence of the local time.
+- The optional browser smoke has an intermittent focus-restoration timeout after booking. It is not a required CI gate; Firefox and Safari behavior remains unverified.
 
-The prepared GitHub Actions workflow uses read-only permissions, Node 24.21.0, an isolated PostgreSQL 18 service, both TypeScript checks/builds, and all unit/API/database/frontend tests. Test target guards reject remote production databases. Browser testing remains local because an existing successful-booking focus assertion timed out intermittently in Chromium; two complete runs passed, but the check needs investigation before becoming a CI gate. Before a public release, run the workflow on GitHub, verify the actual hosting environment and TLS, and repeat both roles' workflows and a cold-start login at the deployed URLs.
-
-## Current limits
-
-There is no hosted environment yet, and the prepared CI workflow has not run on GitHub. Firefox, Safari, and hosted browser behavior are unverified. JWTs expire after one hour; there is no refresh/revocation endpoint. Request limits are process-local, suitable for this single-service MVP. Public demo users share fictional data; this is not a university production system. Browser-local view selection resets on reload. At an ambiguous repeated DST hour, slot creation uses the browser's first occurrence of that local time. Hosting is intended to use free tiers, with no paid resources or billing activation.
+Production build settings and the earlier Render/Neon preparation remain in the separate [optional deployment reference](docs/deployment.md). Deployment is outside the current portfolio scope.
